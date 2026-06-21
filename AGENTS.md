@@ -189,7 +189,7 @@ npm test
 Run a single frontend test file:
 
 ```bash
-npx vitest run src/components/SessionTagEditor.test.tsx
+npm run test --workspace frontend -- src/components/SessionTagEditor.test.tsx
 ```
 
 ### Run lint, typecheck, build
