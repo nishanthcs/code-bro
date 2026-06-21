@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling==1.28.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codebro-backend"
+version = "0.1.0"
+description = "Local persistence and application controller for CodeBro"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.137.2",
+  "pydantic==2.13.4",
+  "uvicorn[standard]==0.49.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx2==2.4.0",
+  "pytest==8.4.2",
+  "pytest-cov==6.3.0",
+]
+package = [
+  "pyinstaller==6.21.0",
+]
+
+[project.scripts]
+codebro = "app.controller:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
