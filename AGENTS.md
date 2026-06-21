@@ -158,6 +158,79 @@ configured `xcrun notarytool` keychain profile to notarize and staple the app
 and DMG. Without those credentials, output is a development artifact and must
 not be described as Gatekeeper-ready.
 
+## Common Workflow Commands
+
+### Environment setup
+
+If the standard `python3.12 -m venv` fails due to missing `ensurepip`, use
+`uv` (a Rust-based Python package manager):
+
+```bash
+uv venv .venv --python 3.12
+uv pip install -c backend/constraints.txt -e './backend[dev,package]'
+```
+
+### Run tests
+
+Backend:
+
+```bash
+uv run pytest backend/tests -v
+# or with pip-installed .venv:
+.venv/bin/pytest backend/tests
+```
+
+Frontend:
+
+```bash
+npm test
+```
+
+Run a single frontend test file:
+
+```bash
+npx vitest run src/components/SessionTagEditor.test.tsx
+```
+
+### Run lint, typecheck, build
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
+
+The build runs `tsc -b`, `vite build`, and `scripts/build-execution.mjs` in
+sequence.
+
+### Git and PR workflow
+
+```bash
+# Stage changed files
+git add <file1> <file2> ...
+
+# Commit
+git commit -m "Short descriptive message"
+
+# Push a new branch
+git push origin <branch-name>
+
+# Create or update a PR
+gh pr create --title "Title" --body "Description" --base main
+gh pr edit <pr-number> --title "New title" --body "New description"
+```
+
+### Install dependencies from scratch
+
+```bash
+# Python (choose one)
+python3 -m venv .venv && .venv/bin/pip install -c backend/constraints.txt -e './backend[dev,package]'
+uv venv .venv --python 3.12 && uv pip install -c backend/constraints.txt -e './backend[dev,package]'
+
+# Node
+npm ci
+```
+
 ## Coding Standards
 
 - Keep TypeScript strict and Python type annotations explicit at public
