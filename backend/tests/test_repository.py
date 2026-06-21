@@ -400,6 +400,41 @@ def test_empty_tags_preserve_pre_tag_mutation_hashes(tmp_path: Path) -> None:
     )
 
 
+def test_get_unique_tags_returns_sorted_unique_tags(tmp_path: Path) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    repository.create_session(
+        "Session A", "", "create-tags-a", ["Python", "Data Structures"]
+    )
+    repository.create_session(
+        "Session B", "", "create-tags-b", ["Python", "Algorithms"]
+    )
+    repository.create_session(
+        "Session C", "", "create-tags-c", None
+    )
+
+    tags = repository.get_unique_tags()
+    assert tags == ["Algorithms", "Data Structures", "Python"]
+
+
+def test_get_unique_tags_empty_when_only_deleted_sessions(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    session, _ = repository.create_session(
+        "Deleted", "", "create-deleted-tags", ["Python"]
+    )
+    repository.delete_session(
+        session["id"], 1, "delete-deleted-tags"
+    )
+
+    tags = repository.get_unique_tags()
+    assert tags == []
+
+
 def test_mutation_receipts_are_never_aged_out(tmp_path: Path) -> None:
     database = Database(tmp_path / "database.sqlite3")
     database.migrate()

@@ -440,6 +440,33 @@ def test_direct_index_receives_runtime_bootstrap(tmp_path: Path) -> None:
         assert "__CODEBRO_" not in response.text
 
 
+def test_tag_suggestions_returns_all_unique_tags(
+    client: TestClient, create_session
+) -> None:
+    create_session(
+        name="Session A",
+        tags=["Python", "Data Structures"],
+        mutation_id="tag-suggest-a",
+    )
+    create_session(
+        name="Session B",
+        tags=["Python", "Algorithms"],
+        mutation_id="tag-suggest-b",
+    )
+
+    response = client.get("/api/v1/tags/suggestions")
+    assert response.status_code == 200
+    assert response.json() == ["Algorithms", "Data Structures", "Python"]
+
+
+def test_tag_suggestions_empty_when_no_sessions(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/tags/suggestions")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_unknown_api_route_returns_json_404_with_spa_enabled(
     tmp_path: Path,
 ) -> None:

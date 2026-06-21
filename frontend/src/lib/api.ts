@@ -135,6 +135,10 @@ export function patchSession(
   });
 }
 
+export function getTagSuggestions(signal?: AbortSignal): Promise<string[]> {
+  return request("/api/v1/tags/suggestions", { signal });
+}
+
 export function deleteSession(
   id: string,
   revision: number,
