@@ -16,14 +16,15 @@ export function useServerHealth() {
     controllerRef.current?.abort();
     
     try {
-      // Simulate API call to check server health
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Make actual API call to check server health
+      const response = await fetch("/api/v1/health", {
+        signal: AbortSignal.timeout(2500)
+      });
       
-      // Simulate server availability (in a real app, this would be an actual API call)
-      const isOnline = Math.random() > 0.2; // 80% chance of being online
-      
-      if (mountedRef.current && generationRef.current === generation) {
-        setHealth(isOnline ? "online" : "offline");
+      if (response.ok) {
+        setHealth("online");
+      } else {
+        setHealth("offline");
       }
     } catch (error) {
       if (mountedRef.current && generationRef.current === generation) {

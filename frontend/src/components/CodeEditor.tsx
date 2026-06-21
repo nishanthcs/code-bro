@@ -35,7 +35,6 @@ export function CodeEditor({ value, onChange, onRun, resetToken }: CodeEditorPro
       
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      const selectedText = value.substring(start, end);
       
       // Get the line boundaries
       const lines = value.substring(0, start).split('\n');
@@ -55,7 +54,7 @@ export function CodeEditor({ value, onChange, onRun, resetToken }: CodeEditorPro
             newLines[i] = line.replace(/^(\s*)#(\s*)/, '$1');
           } else {
             // Comment the line
-            newLines[i] = `${line.substring(0, 0)}#${line.substring(0)}`;
+            newLines[i] = `#${line}`;
           }
         }
         

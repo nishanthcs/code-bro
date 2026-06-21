@@ -11,7 +11,6 @@ interface PlaygroundProps {
 export function Playground({ session }: PlaygroundProps) {
   const autosave = useAutosave(session);
   const [editorResetToken, setEditorResetToken] = useState(0);
-  const [showStdin, setShowStdin] = useState(true);
 
   return (
     <div className="playground">
