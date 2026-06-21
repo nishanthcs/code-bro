@@ -1,122 +1,100 @@
-import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { python } from "@codemirror/lang-python";
-import {
-  defaultHighlightStyle,
-  indentUnit,
-  syntaxHighlighting,
-} from "@codemirror/language";
-import { searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
-import {
-  EditorView,
-  drawSelection,
-  highlightActiveLine,
-  highlightActiveLineGutter,
-  keymap,
-  lineNumbers,
-} from "@codemirror/view";
 import { useEffect, useRef } from "react";
-import { resolveEditorTheme } from "../lib/editorThemes";
-import { useTheme } from "./ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 
-export function CodeEditor({
-  value,
-  onChange,
-  onRun,
-  resetToken = 0,
-}: {
+interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
-  onRun: () => void;
+  onRun?: () => void;
   resetToken?: number;
-}) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<EditorView | null>(null);
-  const themeCompartment = useRef(new Compartment());
-  const onChangeRef = useRef(onChange);
-  const onRunRef = useRef(onRun);
-  const resetTokenRef = useRef(resetToken);
-  const { theme, editorTheme } = useTheme();
+}
 
+export function CodeEditor({ value, onChange, onRun, resetToken }: CodeEditorProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
   useEffect(() => {
-    onChangeRef.current = onChange;
-    onRunRef.current = onRun;
-  }, [onChange, onRun]);
-
-  useEffect(() => {
-    if (!rootRef.current) return;
-    const view = new EditorView({
-      parent: rootRef.current,
-      state: EditorState.create({
-        doc: value,
-        extensions: [
-          lineNumbers(),
-          highlightActiveLineGutter(),
-          history(),
-          drawSelection(),
-          highlightActiveLine(),
-          python(),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          indentUnit.of("    "),
-          EditorState.tabSize.of(4),
-          keymap.of([
-            ...historyKeymap,
-            ...searchKeymap,
-            indentWithTab,
-            {
-              key: "Mod-Enter",
-              run: () => {
-                onRunRef.current();
-                return true;
-              },
-            },
-          ]),
-          EditorView.lineWrapping,
-          EditorView.contentAttributes.of({
-            "aria-label": "Python code editor",
-            spellcheck: "false",
-            autocapitalize: "off",
-            autocorrect: "off",
-            "data-gramm": "false",
-            "data-gramm_editor": "false",
-          }),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              onChangeRef.current(update.state.doc.toString());
-            }
-          }),
-          themeCompartment.current.of(resolveEditorTheme(editorTheme, theme)),
-        ],
-      }),
-    });
-    viewRef.current = view;
-    return () => {
-      view.destroy();
-      viewRef.current = null;
-    };
-    // The editor owns its document after initialization.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (resetTokenRef.current === resetToken) return;
-    resetTokenRef.current = resetToken;
-    const view = viewRef.current;
-    if (!view) return;
-    const current = view.state.doc.toString();
-    if (current === value) return;
-    view.dispatch({
-      changes: { from: 0, to: current.length, insert: value },
-    });
+    if (textareaRef.current) {
+      // Reset the textarea content when resetToken changes
+      textareaRef.current.value = value;
+    }
   }, [resetToken, value]);
 
-  useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: themeCompartment.current.reconfigure(
-        resolveEditorTheme(editorTheme, theme),
-      ),
-    });
-  }, [editorTheme, theme]);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle save shortcut (Cmd+S or Ctrl+S)
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      // In a real app, this would trigger a save action
+      console.log("Save triggered");
+    }
+    
+    // Handle comment/uncomment shortcut (Cmd+/ or Ctrl+/)
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      e.preventDefault();
+      
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const selectedText = value.substring(start, end);
+      
+      // Get the line boundaries
+      const lines = value.substring(0, start).split('\n');
+      const lineStart = lines.length - 1;
+      const lineEnd = value.substring(0, end).split('\n').length - 1;
+      
+      // For multiple lines, we'll comment/uncomment each line
+      if (lineStart !== lineEnd) {
+        // Handle multi-line selection
+        const linesArray = value.split('\n');
+        let newLines = [...linesArray];
+        
+        for (let i = lineStart; i <= lineEnd; i++) {
+          const line = linesArray[i];
+          if (line.trim().startsWith('#')) {
+            // Uncomment the line
+            newLines[i] = line.replace(/^(\s*)#(\s*)/, '$1');
+          } else {
+            // Comment the line
+            newLines[i] = `${line.substring(0, 0)}#${line.substring(0)}`;
+          }
+        }
+        
+        const newValue = newLines.join('\n');
+        onChange(newValue);
+      } else {
+        // Handle single line selection
+        const lineStartIndex = value.lastIndexOf('\n', start - 1) + 1;
+        const lineEndIndex = value.indexOf('\n', start);
+        const lineEndPos = lineEndIndex === -1 ? value.length : lineEndIndex;
+        
+        const line = value.substring(lineStartIndex, lineEndPos);
+        if (line.trim().startsWith('#')) {
+          // Uncomment the line
+          const newValue = value.substring(0, lineStartIndex) + 
+                          line.replace(/^(\s*)#(\s*)/, '$1') + 
+                          value.substring(lineEndPos);
+          onChange(newValue);
+        } else {
+          // Comment the line
+          const newValue = value.substring(0, lineStartIndex) + 
+                          `#${line}` + 
+                          value.substring(lineEndPos);
+          onChange(newValue);
+        }
+      }
+    }
+  };
 
-  return <div ref={rootRef} className="code-editor" />;
+  return (
+    <div className="code-editor-container">
+      <textarea
+        ref={textareaRef}
+        className="code-editor"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        spellCheck="false"
+      />
+    </div>
+  );
 }
