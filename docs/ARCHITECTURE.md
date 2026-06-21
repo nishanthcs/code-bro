@@ -21,6 +21,9 @@ SQLite contains:
 - `sessions`: names, normalized search names, code, persisted code previews,
   normalized tags, tag-search text, revision, timestamps, and soft-deletion
   state.
+- `session_reference_urls`: optional one-to-one absolute HTTP(S) Reference
+  URLs.
+- `session_notes`: optional one-to-one raw Markdown Notes.
 - `mutations`: durable idempotency receipts used to distinguish a lost HTTP
   response from a genuine concurrent edit.
 
@@ -28,6 +31,18 @@ Session updates use optimistic revisions. Mutation receipts are checked before
 revision checks so retries remain idempotent even if another tab saved a newer
 revision. Receipts are retained indefinitely because deleting one would allow a
 delayed retry to apply as a new mutation.
+
+Metadata writes share the session update transaction and revision. Empty
+Reference or Notes values delete their one-to-one row. Single-session reads
+return both fields, while dashboard list SQL joins only Reference URLs and does
+not select Notes or full source code.
+
+When a save requests enrichment and its final tag list is empty, the repository
+runs deterministic standard-library-only inference inside the transaction.
+Relevant existing tags from non-deleted sessions are preferred; otherwise up
+to two stable concept labels are generated, with `Python` as the non-empty-code
+fallback. Source code never leaves the local process, and mutation hashes
+contain only client-supplied fields and the enrichment flag.
 
 Session listing is server-backed and cursor-paginated. Name-or-tag search, sort
 selection, and updated-date thresholds are applied in SQLite so the dashboard
@@ -42,7 +57,8 @@ transaction. The application refuses to open a database with a schema version
 newer than it supports. Schema version 2 adds and backfills `code_preview`;
 create and code-patch mutations maintain it so session lists do not read full
 source text. Schema version 3 adds JSON tag storage and normalized tag-search
-text.
+text. Schema version 4 adds the Reference URL and Notes tables without
+rewriting existing sessions.
 
 ## Controller startup
 
@@ -69,9 +85,14 @@ close-bracket extensions.
 
 The playground installs page-level `Cmd/Ctrl+S` and `Cmd/Ctrl+Enter` handling
 so save and run work outside the editor. `F2` focuses the session name and
-`Ctrl+Shift+T` focuses the tag editor. CodeMirror handles `Cmd/Ctrl+/` for the
-current line or selected lines. `Escape`, then `Tab`, temporarily disables
-CodeMirror's Tab indentation binding so keyboard users can leave the editor.
+`Ctrl+Shift+T` expands metadata and focuses the tag editor. `Ctrl+Shift+M`
+toggles the metadata drawer. CodeMirror handles `Cmd/Ctrl+/` for the current
+line or selected lines. `Escape`, then `Tab`, temporarily disables CodeMirror's
+Tab indentation binding so keyboard users can leave the editor.
+
+Notes preview uses `react-markdown` with GFM, raw HTML disabled, remote images
+removed, and safe external-link attributes. Only the metadata disclosure
+preference is stored in localStorage.
 
 ## Availability feedback
 
@@ -91,4 +112,5 @@ per-session cursor selections are UI-only preferences stored in localStorage.
 
 The UI ships polished light and dark themes. The initial value follows the
 operating system and the user choice is stored as a UI-only local preference.
-Session source code, names, and tags are never persisted in browser storage.
+Session source code, names, tags, Reference URLs, and Notes are never persisted
+in browser storage.

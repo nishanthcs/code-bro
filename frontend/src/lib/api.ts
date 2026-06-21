@@ -123,6 +123,9 @@ export function patchSession(
     name?: string;
     code?: string;
     tags?: string[];
+    ref_url?: string | null;
+    notes_markdown?: string;
+    auto_tag_if_empty?: boolean;
     expected_revision: number;
     mutation_id: string;
   },

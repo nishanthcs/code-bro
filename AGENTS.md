@@ -67,6 +67,7 @@ but CodeBro must not import or configure the autocomplete extension.
 ### Persistence
 
 - SQLite is the durable source of truth for session names, tags, and code.
+- Reference URLs and Markdown Notes are also SQLite-only session data.
 - Do not store session source code in local storage.
 - Theme, editor layout, stdin visibility, and cursor preferences may remain in
   local storage because they are UI-only state.
@@ -76,6 +77,8 @@ but CodeBro must not import or configure the autocomplete extension.
 - Keep session deletion soft.
 - Search names and tags using the same Unicode NFKC normalization and case
   folding for writes and queries.
+- Keep automatic tag inference deterministic, local, dependency-free, and
+  capped at two tags. Never send source code to a network service.
 
 ### Execution
 
@@ -98,6 +101,8 @@ but CodeBro must not import or configure the autocomplete extension.
 - Never log session names, code, stdin, or output.
 - Do not add analytics, telemetry, remote fonts, third-party scripts, or runtime
   CDN dependencies.
+- Keep raw Notes HTML disabled and prevent Markdown images from loading remote
+  resources.
 
 ## Development Environment
 

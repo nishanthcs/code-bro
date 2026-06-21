@@ -10,6 +10,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .database import Database, code_preview
+from .tag_inference import infer_tags
+
+
+class _Unset:
+    pass
+
+
+UNSET = _Unset()
 
 
 class RepositoryError(Exception):
@@ -124,7 +132,7 @@ def decode_cursor(cursor: str, expected_sort: str) -> tuple[str, str]:
 
 
 def row_to_session(row: sqlite3.Row) -> dict[str, Any]:
-    return {
+    result = {
         "id": row["id"],
         "name": row["name"],
         "code": row["code"],
@@ -132,12 +140,70 @@ def row_to_session(row: sqlite3.Row) -> dict[str, Any]:
         "revision": row["revision"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "ref_url": None,
+        "notes_markdown": "",
     }
+    try:
+        result["ref_url"] = row["ref_url"] or None
+    except (IndexError, KeyError):
+        pass
+    try:
+        result["notes_markdown"] = row["notes_markdown"] or ""
+    except (IndexError, KeyError):
+        pass
+    return result
 
 
 class SessionRepository:
     def __init__(self, database: Database):
         self.database = database
+
+    @staticmethod
+    def _upsert_ref_url(
+        connection: sqlite3.Connection, session_id: str, url: str, now: str
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO session_reference_urls(session_id, url, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(session_id)
+            DO UPDATE SET url = excluded.url, updated_at = excluded.updated_at
+            """,
+            (session_id, url, now),
+        )
+
+    @staticmethod
+    def _delete_ref_url(
+        connection: sqlite3.Connection, session_id: str
+    ) -> None:
+        connection.execute(
+            "DELETE FROM session_reference_urls WHERE session_id = ?",
+            (session_id,),
+        )
+
+    @staticmethod
+    def _upsert_notes(
+        connection: sqlite3.Connection, session_id: str, markdown: str, now: str
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO session_notes(session_id, markdown, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(session_id)
+            DO UPDATE SET markdown = excluded.markdown,
+                          updated_at = excluded.updated_at
+            """,
+            (session_id, markdown, now),
+        )
+
+    @staticmethod
+    def _delete_notes(
+        connection: sqlite3.Connection, session_id: str
+    ) -> None:
+        connection.execute(
+            "DELETE FROM session_notes WHERE session_id = ?",
+            (session_id,),
+        )
 
     def list_sessions(
         self,
@@ -166,22 +232,25 @@ class SessionRepository:
             )
             params.extend([f"%{escaped}%", f"%{escaped}%"])
         if updated_after:
-            where.append("updated_at >= ?")
+            where.append("s.updated_at >= ?")
             params.append(updated_after)
         if cursor:
             sort_value, session_id = decode_cursor(cursor, sort)
             where.append(
-                f"({sort_column} {cursor_operator} ? "
-                f"OR ({sort_column} = ? AND id > ?))"
+                f"(s.{sort_column} {cursor_operator} ? "
+                f"OR (s.{sort_column} = ? AND s.id > ?))"
             )
             params.extend([sort_value, sort_value, session_id])
         params.append(limit + 1)
+        sort_expr = f"s.{sort_column}"
         sql = f"""
-            SELECT id, name, name_search, code_preview, tags_json, revision,
-                   created_at, updated_at
-            FROM sessions
+            SELECT s.id, s.name, s.name_search, s.code_preview, s.tags_json,
+                   s.revision, s.created_at, s.updated_at,
+                   r.url AS ref_url
+            FROM sessions s
+            LEFT JOIN session_reference_urls r ON r.session_id = s.id
             WHERE {' AND '.join(where)}
-            ORDER BY {sort_column} {sort_direction}, id ASC
+            ORDER BY {sort_expr} {sort_direction}, s.id ASC
             LIMIT ?
         """
         with self.database.connect() as connection:
@@ -197,6 +266,7 @@ class SessionRepository:
                 "revision": row["revision"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
+                "ref_url": row["ref_url"] or None,
             }
             for row in rows
         ]
@@ -211,10 +281,13 @@ class SessionRepository:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, name, code, tags_json, revision,
-                       created_at, updated_at
-                FROM sessions
-                WHERE id = ? AND deleted_at IS NULL
+                SELECT s.id, s.name, s.code, s.tags_json, s.revision,
+                       s.created_at, s.updated_at,
+                       r.url AS ref_url, n.markdown AS notes_markdown
+                FROM sessions s
+                LEFT JOIN session_reference_urls r ON r.session_id = s.id
+                LEFT JOIN session_notes n ON n.session_id = s.id
+                WHERE s.id = ? AND s.deleted_at IS NULL
                 """,
                 (session_id,),
             ).fetchone()
@@ -228,6 +301,8 @@ class SessionRepository:
         code: str,
         mutation_id: str,
         tags: list[str] | None = None,
+        ref_url: str | None | _Unset = UNSET,
+        notes_markdown: str | None | _Unset = UNSET,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         clean_name, name_search = normalize_name(name)
         clean_tags, tags_search = normalize_tags(tags or [])
@@ -238,6 +313,10 @@ class SessionRepository:
         }
         if clean_tags:
             hash_payload["tags"] = clean_tags
+        if ref_url is not UNSET:
+            hash_payload["ref_url"] = ref_url
+        if notes_markdown is not UNSET:
+            hash_payload["notes_markdown"] = notes_markdown
         request_hash = canonical_hash("create", hash_payload)
         with self.database.transaction() as connection:
             duplicate = self._duplicate_receipt(
@@ -266,6 +345,16 @@ class SessionRepository:
                     now,
                 ),
             )
+            if ref_url is not UNSET:
+                if ref_url:
+                    self._upsert_ref_url(connection, session_id, ref_url, now)
+                else:
+                    self._delete_ref_url(connection, session_id)
+            if notes_markdown is not UNSET:
+                if notes_markdown:
+                    self._upsert_notes(connection, session_id, notes_markdown, now)
+                else:
+                    self._delete_notes(connection, session_id)
             connection.execute(
                 """
                 INSERT INTO mutations(
@@ -277,7 +366,7 @@ class SessionRepository:
             )
             row = self._get_row(connection, session_id, include_deleted=True)
             return row_to_session(row), self._mutation_meta(
-                mutation_id, 1, False, False
+                mutation_id, 1, False, False, []
             )
 
     def patch_session(
@@ -289,6 +378,9 @@ class SessionRepository:
         expected_revision: int,
         mutation_id: str,
         tags: list[str] | None = None,
+        ref_url: str | None | _Unset = UNSET,
+        notes_markdown: str | None | _Unset = UNSET,
+        auto_tag_if_empty: bool | _Unset = UNSET,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         clean_name = name_search = None
         if name is not None:
@@ -296,7 +388,7 @@ class SessionRepository:
         clean_tags = tags_search = None
         if tags is not None:
             clean_tags, tags_search = normalize_tags(tags)
-        hash_payload = {
+        hash_payload: dict[str, Any] = {
             "session_id": session_id,
             "name": clean_name,
             "code": code,
@@ -305,6 +397,12 @@ class SessionRepository:
         }
         if tags is not None:
             hash_payload["tags"] = clean_tags
+        if ref_url is not UNSET:
+            hash_payload["ref_url"] = ref_url
+        if notes_markdown is not UNSET:
+            hash_payload["notes_markdown"] = notes_markdown
+        if auto_tag_if_empty is not UNSET:
+            hash_payload["auto_tag_if_empty"] = auto_tag_if_empty
         request_hash = canonical_hash("patch", hash_payload)
         with self.database.transaction() as connection:
             duplicate = self._duplicate_receipt(
@@ -331,6 +429,17 @@ class SessionRepository:
             next_tags_search = (
                 tags_search if tags_search is not None else row["tags_search"]
             )
+            auto_tags_added: list[str] = []
+            if auto_tag_if_empty is True and not next_tags and next_code.strip():
+                existing = self._collect_existing_tags(connection)
+                auto_tags_added, _ = normalize_tags(
+                    infer_tags(next_code, existing, max_results=2)
+                )
+                if auto_tags_added:
+                    next_tags = auto_tags_added
+                    next_tags_search = "\n".join(
+                        tag.casefold() for tag in auto_tags_added
+                    )
             now = utc_now()
             connection.execute(
                 """
@@ -351,6 +460,16 @@ class SessionRepository:
                     session_id,
                 ),
             )
+            if ref_url is not UNSET:
+                if ref_url:
+                    self._upsert_ref_url(connection, session_id, ref_url, now)
+                else:
+                    self._delete_ref_url(connection, session_id)
+            if notes_markdown is not UNSET:
+                if notes_markdown:
+                    self._upsert_notes(connection, session_id, notes_markdown, now)
+                else:
+                    self._delete_notes(connection, session_id)
             connection.execute(
                 """
                 INSERT INTO mutations(
@@ -362,7 +481,7 @@ class SessionRepository:
             )
             updated = self._get_row(connection, session_id)
             return row_to_session(updated), self._mutation_meta(
-                mutation_id, next_revision, False, False
+                mutation_id, next_revision, False, False, auto_tags_added
             )
 
     def delete_session(
@@ -419,10 +538,15 @@ class SessionRepository:
         deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
         row = connection.execute(
             f"""
-            SELECT id, name, name_search, code, code_preview, tags_json,
-                   tags_search, revision, created_at, updated_at, deleted_at
-            FROM sessions
-            WHERE id = ? {deleted_clause}
+            SELECT s.id, s.name, s.name_search, s.code, s.code_preview,
+                   s.tags_json, s.tags_search, s.revision, s.created_at,
+                   s.updated_at, s.deleted_at,
+                   r.url AS ref_url,
+                   n.markdown AS notes_markdown
+            FROM sessions s
+            LEFT JOIN session_reference_urls r ON r.session_id = s.id
+            LEFT JOIN session_notes n ON n.session_id = s.id
+            WHERE s.id = ? {deleted_clause}
             """,
             (session_id,),
         ).fetchone()
@@ -468,6 +592,7 @@ class SessionRepository:
             receipt["applied_revision"],
             True,
             superseded,
+            [],
         )
 
     def get_unique_tags(self) -> list[str]:
@@ -500,15 +625,55 @@ class SessionRepository:
         return sorted(unique_tags.values(), key=lambda x: x.casefold())
 
     @staticmethod
+    def _collect_existing_tags(
+        connection: sqlite3.Connection,
+    ) -> list[tuple[str, int]]:
+        counts: dict[str, int] = {}
+        display: dict[str, str] = {}
+        rows = connection.execute(
+            """
+            SELECT tags_json
+            FROM sessions
+            WHERE deleted_at IS NULL AND tags_json != '[]'
+            """
+        ).fetchall()
+        spellings: dict[str, dict[str, int]] = {}
+        for row in rows:
+            try:
+                tags = json.loads(row["tags_json"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(tags, list):
+                continue
+            for tag in tags:
+                if isinstance(tag, str) and tag.strip():
+                    key = unicodedata.normalize("NFKC", tag).casefold()
+                    counts[key] = counts.get(key, 0) + 1
+                    spelling_counts = spellings.setdefault(key, {})
+                    spelling_counts[tag] = spelling_counts.get(tag, 0) + 1
+        for key, spelling_counts in spellings.items():
+            display[key] = sorted(
+                spelling_counts,
+                key=lambda spelling: (
+                    -spelling_counts[spelling],
+                    spelling.casefold(),
+                    spelling,
+                ),
+            )[0]
+        return [(display[key], counts[key]) for key in display]
+
+    @staticmethod
     def _mutation_meta(
         mutation_id: str,
         applied_revision: int,
         duplicate: bool,
         superseded: bool,
+        auto_tags_added: list[str] | None = None,
     ) -> dict[str, Any]:
         return {
             "mutation_id": mutation_id,
             "applied_revision": applied_revision,
             "duplicate": duplicate,
             "superseded": superseded,
+            "auto_tags_added": auto_tags_added or [],
         }

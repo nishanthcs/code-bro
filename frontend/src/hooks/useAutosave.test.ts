@@ -25,10 +25,15 @@ function session(
     revision,
     created_at: "2026-06-20T00:00:00Z",
     updated_at: "2026-06-20T00:00:00Z",
+    ref_url: null,
+    notes_markdown: "",
   };
 }
 
-function response(resource: SessionResource): MutationResponse {
+function response(
+  resource: SessionResource,
+  autoTagsAdded: string[] = [],
+): MutationResponse {
   return {
     session: resource,
     mutation: {
@@ -36,6 +41,7 @@ function response(resource: SessionResource): MutationResponse {
       applied_revision: resource.revision,
       duplicate: false,
       superseded: false,
+      auto_tags_added: autoTagsAdded,
     },
   };
 }
@@ -111,7 +117,7 @@ describe("useAutosave", () => {
     act(() => {
       result.current.setDraft((current) => ({ ...current, code: "first" }));
     });
-    expect(result.current.isDirty).toBe(true);
+    await waitFor(() => expect(result.current.isDirty).toBe(true));
 
     act(() => {
       first.resolve(response(session("second", 2)));
@@ -202,6 +208,124 @@ describe("useAutosave", () => {
     );
     expect(result.current.isDirty).toBe(false);
     expect(result.current.status).toBe("saved");
+  });
+
+  it("persists metadata-only changes and clears them explicitly", async () => {
+    const saved = {
+      ...session("first", 2),
+      ref_url: "https://example.com/docs",
+      notes_markdown: "# Notes",
+    };
+    mockedPatchSession.mockResolvedValue(response(saved));
+    const { result } = renderHook(() => useAutosave(session("first")));
+
+    act(() => {
+      result.current.setDraft((current) => ({
+        ...current,
+        ref_url: "https://example.com/docs",
+        notes_markdown: "# Notes",
+      }));
+    });
+    await act(async () => {
+      await result.current.saveNow();
+    });
+
+    expect(mockedPatchSession.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        ref_url: "https://example.com/docs",
+        notes_markdown: "# Notes",
+        auto_tag_if_empty: true,
+        expected_revision: 1,
+      }),
+    );
+    expect(mockedPatchSession.mock.calls[0]?.[1]).not.toHaveProperty("code");
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it("forces a clean enrichment save when explicitly requested", async () => {
+    const tagged = { ...session("value = 1", 2), tags: ["Python"] };
+    mockedPatchSession.mockResolvedValue(response(tagged, ["Python"]));
+    const { result } = renderHook(() => useAutosave(session("value = 1")));
+
+    await act(async () => {
+      await result.current.saveNow(true);
+    });
+
+    expect(mockedPatchSession.mock.calls[0]?.[1]).toEqual({
+      auto_tag_if_empty: true,
+      expected_revision: 1,
+      mutation_id: expect.any(String),
+    });
+    expect(result.current.draft.tags).toEqual(["Python"]);
+  });
+
+  it("does not overwrite newer manual tags with returned automatic tags", async () => {
+    const first = deferred<MutationResponse>();
+    const second = deferred<MutationResponse>();
+    mockedPatchSession
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const { result } = renderHook(() => useAutosave(session("first")));
+
+    act(() => {
+      result.current.setDraft((current) => ({ ...current, code: "second" }));
+    });
+    let savePromise!: Promise<boolean>;
+    act(() => {
+      savePromise = result.current.saveNow();
+    });
+    await waitFor(() => expect(mockedPatchSession).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      result.current.setDraft((current) => ({
+        ...current,
+        code: "third",
+        tags: ["Manual"],
+      }));
+      first.resolve(
+        response(
+          { ...session("second", 2), tags: ["Python"] },
+          ["Python"],
+        ),
+      );
+    });
+
+    await waitFor(() => expect(mockedPatchSession).toHaveBeenCalledTimes(2));
+    expect(mockedPatchSession.mock.calls[1]?.[1]).toMatchObject({
+      code: "third",
+      tags: ["Manual"],
+      expected_revision: 2,
+    });
+
+    await act(async () => {
+      second.resolve(
+        response({ ...session("third", 3), tags: ["Manual"] }),
+      );
+      await savePromise;
+    });
+    expect(result.current.draft.tags).toEqual(["Manual"]);
+  });
+
+  it("reuses a mutation ID after an uncertain failure", async () => {
+    mockedPatchSession
+      .mockRejectedValueOnce(new Error("connection lost"))
+      .mockResolvedValueOnce(response(session("second", 2)));
+    const { result } = renderHook(() => useAutosave(session("first")));
+
+    act(() => {
+      result.current.setDraft((current) => ({ ...current, code: "second" }));
+    });
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    const firstMutationId = mockedPatchSession.mock.calls[0]?.[1].mutation_id;
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(mockedPatchSession.mock.calls[1]?.[1].mutation_id).toBe(
+      firstMutationId,
+    );
   });
 
   it("cancels retry timers on unmount", async () => {

@@ -12,6 +12,7 @@ from app.database import (
     UnsupportedSchemaVersionError,
 )
 from app.repository import (
+    UNSET,
     SessionRepository,
     canonical_hash,
     normalize_name,
@@ -97,10 +98,71 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
             row["name"]
             for row in connection.execute("PRAGMA table_info(sessions)")
         }
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
     assert version == SCHEMA_VERSION
     assert "code_preview" in columns
     assert "tags_json" in columns
     assert "tags_search" in columns
+    assert "session_reference_urls" in tables
+    assert "session_notes" in tables
+
+
+def test_version_3_to_4_migration_preserves_sessions_and_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "database.sqlite3"
+    monkeypatch.setattr(database_module, "SCHEMA_VERSION", 3)
+    database = Database(database_path)
+    database.migrate()
+    with database.transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO sessions(
+                id, name, name_search, code, code_preview, tags_json,
+                tags_search, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                "session-1",
+                "Preserved",
+                "preserved",
+                "print(1)\n",
+                "print(1)",
+                '["Python"]',
+                "python",
+                "2026-06-21T00:00:00.000Z",
+                "2026-06-21T00:00:00.000Z",
+            ),
+        )
+
+    monkeypatch.setattr(database_module, "SCHEMA_VERSION", 4)
+    database.migrate()
+
+    with database.connect() as connection:
+        version = connection.execute(
+            "SELECT version FROM schema_meta"
+        ).fetchone()[0]
+        session = connection.execute(
+            "SELECT name, tags_json FROM sessions WHERE id = 'session-1'"
+        ).fetchone()
+        metadata_tables = {
+            row["name"]
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('session_reference_urls', 'session_notes')
+                """
+            )
+        }
+    assert version == 4
+    assert dict(session) == {"name": "Preserved", "tags_json": '["Python"]'}
+    assert metadata_tables == {"session_reference_urls", "session_notes"}
 
 
 def test_migration_backfills_persisted_code_preview(tmp_path: Path) -> None:
@@ -248,11 +310,12 @@ def test_code_preview_is_persisted_and_list_does_not_select_code(
     list_select = next(
         statement
         for statement in statements
-        if "FROM sessions" in statement and "ORDER BY updated_at" in statement
+        if "FROM sessions s" in statement and "ORDER BY s.updated_at" in statement
     )
-    selected_columns = list_select.split("FROM sessions", 1)[0]
+    selected_columns = list_select.split("FROM", 1)[0]
     assert " code," not in selected_columns
     assert "code_preview" in selected_columns
+    assert "notes" not in selected_columns
 
 
 def test_session_listing_supports_sort_date_filter_and_pagination(
@@ -398,6 +461,179 @@ def test_empty_tags_preserve_pre_tag_mutation_hashes(tmp_path: Path) -> None:
             "mutation_id": "legacy-patch",
         },
     )
+
+
+def test_metadata_round_trip_clear_and_list_shape(tmp_path: Path) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    created, _ = repository.create_session(
+        "Metadata",
+        "print(1)\n",
+        "metadata-create",
+        ref_url="https://example.com/docs",
+        notes_markdown="# Notes\n",
+    )
+
+    assert created["ref_url"] == "https://example.com/docs"
+    assert created["notes_markdown"] == "# Notes\n"
+    listed, _ = repository.list_sessions("", 50, None)
+    assert listed[0]["ref_url"] == "https://example.com/docs"
+    assert "notes_markdown" not in listed[0]
+
+    cleared, _ = repository.patch_session(
+        created["id"],
+        name=None,
+        code=None,
+        expected_revision=1,
+        mutation_id="metadata-clear",
+        ref_url=None,
+        notes_markdown="",
+    )
+    assert cleared["revision"] == 2
+    assert cleared["ref_url"] is None
+    assert cleared["notes_markdown"] == ""
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT 1 FROM session_reference_urls"
+        ).fetchone() is None
+        assert connection.execute("SELECT 1 FROM session_notes").fetchone() is None
+
+
+def test_omitted_metadata_preserves_historical_patch_hash(tmp_path: Path) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    session, _ = repository.create_session(
+        "Compatibility",
+        "print(1)\n",
+        "compat-create",
+        ref_url=UNSET,
+        notes_markdown=UNSET,
+    )
+    repository.patch_session(
+        session["id"],
+        name="Renamed",
+        code=None,
+        expected_revision=1,
+        mutation_id="compat-patch",
+    )
+    with database.connect() as connection:
+        request_hash = connection.execute(
+            """
+            SELECT request_hash FROM mutations
+            WHERE mutation_id = 'compat-patch'
+            """
+        ).fetchone()["request_hash"]
+    assert request_hash == canonical_hash(
+        "patch",
+        {
+            "session_id": session["id"],
+            "name": "Renamed",
+            "code": None,
+            "expected_revision": 1,
+            "mutation_id": "compat-patch",
+        },
+    )
+
+
+def test_auto_tagging_prefers_existing_tags_and_is_retry_stable(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    repository.create_session(
+        "Catalog",
+        "pass\n",
+        "catalog-create",
+        ["Priority Queue"],
+    )
+    target, _ = repository.create_session(
+        "Target",
+        "import heapq\nheapq.heappush([], 1)\n",
+        "target-create",
+    )
+    payload = {
+        "name": None,
+        "code": None,
+        "expected_revision": 1,
+        "mutation_id": "target-auto-tag",
+        "auto_tag_if_empty": True,
+    }
+
+    tagged, mutation = repository.patch_session(target["id"], **payload)
+    repository.create_session(
+        "Later catalog",
+        "",
+        "later-catalog",
+        ["Heap"],
+    )
+    retried, retry_meta = repository.patch_session(target["id"], **payload)
+
+    assert tagged["tags"] == ["Priority Queue"]
+    assert mutation["auto_tags_added"] == ["Priority Queue"]
+    assert retried["tags"] == ["Priority Queue"]
+    assert retry_meta["duplicate"] is True
+    assert retry_meta["auto_tags_added"] == []
+
+
+def test_auto_tagging_respects_manual_tags_blank_code_and_soft_deletes(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    deleted, _ = repository.create_session(
+        "Deleted catalog",
+        "",
+        "deleted-catalog",
+        ["Browser"],
+    )
+    repository.delete_session(deleted["id"], 1, "deleted-catalog-delete")
+
+    manual, _ = repository.create_session(
+        "Manual",
+        "import asyncio\n",
+        "manual-create",
+        ["Chosen"],
+    )
+    unchanged, mutation = repository.patch_session(
+        manual["id"],
+        name=None,
+        code=None,
+        expected_revision=1,
+        mutation_id="manual-auto",
+        auto_tag_if_empty=True,
+    )
+    blank, _ = repository.create_session("Blank", "   \n", "blank-create")
+    blank_result, blank_meta = repository.patch_session(
+        blank["id"],
+        name=None,
+        code=None,
+        expected_revision=1,
+        mutation_id="blank-auto",
+        auto_tag_if_empty=True,
+    )
+    browser, _ = repository.create_session(
+        "Browser",
+        "browser = True\n",
+        "browser-create",
+    )
+    browser_result, _ = repository.patch_session(
+        browser["id"],
+        name=None,
+        code=None,
+        expected_revision=1,
+        mutation_id="browser-auto",
+        auto_tag_if_empty=True,
+    )
+
+    assert unchanged["tags"] == ["Chosen"]
+    assert mutation["auto_tags_added"] == []
+    assert blank_result["tags"] == []
+    assert blank_meta["auto_tags_added"] == []
+    assert browser_result["tags"] == ["Python"]
 
 
 def test_get_unique_tags_returns_sorted_unique_tags(tmp_path: Path) -> None:

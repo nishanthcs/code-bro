@@ -6,6 +6,7 @@ import {
   type SetStateAction,
 } from "react";
 import { ApiError, patchSession } from "../lib/api";
+import { sameSessionContent } from "../lib/sessionContent";
 import type { SaveStatus, SessionResource } from "../types";
 
 const RETRY_DELAYS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
@@ -17,15 +18,6 @@ function isTerminalClientError(error: unknown): error is ApiError {
     error.status < 500 &&
     error.status !== 408 &&
     error.status !== 429
-  );
-}
-
-function sameContent(left: SessionResource, right: SessionResource): boolean {
-  return (
-    left.name === right.name &&
-    left.code === right.code &&
-    left.tags.length === right.tags.length &&
-    left.tags.every((tag, index) => tag === right.tags[index])
   );
 }
 
@@ -48,7 +40,9 @@ export function useAutosave(initialSession: SessionResource) {
     snapshot: SessionResource;
     expectedRevision: number;
     mutationId: string;
+    forceAutoTag: boolean;
   } | null>(null);
+  const forceAutoTagRequestedRef = useRef(false);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -57,7 +51,7 @@ export function useAutosave(initialSession: SessionResource) {
 
   const isDirty =
     hasUnsettledMutation ||
-    !sameContent(draft, persisted);
+    !sameSessionContent(draft, persisted);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -68,20 +62,26 @@ export function useAutosave(initialSession: SessionResource) {
 
   const runSaveLoop = useCallback(async (): Promise<boolean> => {
     while (mountedRef.current && !abandonedRef.current) {
-      const currentDraft = draftRef.current;
       const base = persistedRef.current;
-      const pending =
-        pendingMutationRef.current ??
-        {
-          snapshot: currentDraft,
+      let pending = pendingMutationRef.current;
+      if (!pending) {
+        pending = {
+          snapshot: draftRef.current,
           expectedRevision: base.revision,
           mutationId: crypto.randomUUID(),
+          forceAutoTag: forceAutoTagRequestedRef.current,
         };
+        forceAutoTagRequestedRef.current = false;
+      }
       pendingMutationRef.current = pending;
-      setHasUnsettledMutation(true);
-      const { snapshot, expectedRevision, mutationId } = pending;
-      if (sameContent(snapshot, base)) {
+
+      const { snapshot, expectedRevision, mutationId, forceAutoTag } = pending;
+
+      if (!forceAutoTag && sameSessionContent(snapshot, base)) {
         pendingMutationRef.current = null;
+        if (forceAutoTagRequestedRef.current) {
+          continue;
+        }
         setHasUnsettledMutation(false);
         if (mountedRef.current) {
           setStatus("saved");
@@ -89,41 +89,76 @@ export function useAutosave(initialSession: SessionResource) {
         return true;
       }
 
+      setHasUnsettledMutation(true);
       if (mountedRef.current) setStatus("saving");
       const controller = new AbortController();
       activeControllerRef.current = controller;
 
+      const payload: Parameters<typeof patchSession>[1] = {
+        auto_tag_if_empty: true,
+        expected_revision: expectedRevision,
+        mutation_id: mutationId,
+      };
+      if (snapshot.name !== base.name) payload.name = snapshot.name;
+      if (snapshot.code !== base.code) payload.code = snapshot.code;
+      if (
+        snapshot.tags.length !== base.tags.length ||
+        snapshot.tags.some((tag, index) => tag !== base.tags[index])
+      ) {
+        payload.tags = snapshot.tags;
+      }
+      if (snapshot.ref_url !== base.ref_url) payload.ref_url = snapshot.ref_url;
+      if (snapshot.notes_markdown !== base.notes_markdown) {
+        payload.notes_markdown = snapshot.notes_markdown;
+      }
+
       try {
         const response = await patchSession(
           snapshot.id,
-          {
-            name: snapshot.name,
-            code: snapshot.code,
-            tags: snapshot.tags,
-            expected_revision: expectedRevision,
-            mutation_id: mutationId,
-          },
+          payload,
           controller.signal,
         );
         if (!mountedRef.current || abandonedRef.current) return false;
 
         pendingMutationRef.current = null;
-        setHasUnsettledMutation(false);
-        const latestDraft = draftRef.current;
+        let latestDraft = draftRef.current;
         if (
           response.mutation.superseded &&
-          !sameContent(response.session, latestDraft)
+          !sameSessionContent(response.session, latestDraft)
         ) {
+          setHasUnsettledMutation(false);
           setConflict(response.session);
           setStatus("conflict");
           return false;
         }
+
+        const shouldMergeServerTags =
+          latestDraft.tags.length === 0 &&
+          snapshot.tags.length === 0 &&
+          response.session.tags.length > 0 &&
+          (
+            response.mutation.auto_tags_added.length > 0 ||
+            response.mutation.duplicate
+          );
+        if (shouldMergeServerTags) {
+          latestDraft = {
+            ...latestDraft,
+            tags: response.session.tags,
+          };
+          setDraft(latestDraft);
+          draftRef.current = latestDraft;
+        }
+
         setPersisted(response.session);
         persistedRef.current = response.session;
         retryIndexRef.current = 0;
-        if (sameContent(latestDraft, snapshot)) {
+        if (sameSessionContent(latestDraft, response.session)) {
           setDraft(response.session);
           draftRef.current = response.session;
+          if (forceAutoTagRequestedRef.current) {
+            continue;
+          }
+          setHasUnsettledMutation(false);
           setStatus("saved");
           return true;
         }
@@ -140,7 +175,7 @@ export function useAutosave(initialSession: SessionResource) {
           error.body.error.details.session
         ) {
           const server = error.body.error.details.session;
-          if (sameContent(server, draftRef.current)) {
+          if (sameSessionContent(server, draftRef.current)) {
             pendingMutationRef.current = null;
             setHasUnsettledMutation(false);
             setPersisted(server);
@@ -182,19 +217,27 @@ export function useAutosave(initialSession: SessionResource) {
     return false;
   }, [clearTimer]);
 
-  const saveNow = useCallback((): Promise<boolean> => {
-    if (inFlightRef.current) return inFlightRef.current;
-    if (abandonedRef.current) return Promise.resolve(false);
-    clearTimer();
-    const operation = runSaveLoop().finally(() => {
-      inFlightRef.current = null;
-    });
-    inFlightRef.current = operation;
-    return operation;
-  }, [clearTimer, runSaveLoop]);
+  const saveNow = useCallback(
+    (forceAutoTag = false): Promise<boolean> => {
+      if (forceAutoTag) {
+        forceAutoTagRequestedRef.current = true;
+      }
+      if (inFlightRef.current) {
+        return inFlightRef.current;
+      }
+      if (abandonedRef.current) return Promise.resolve(false);
+      clearTimer();
+      const operation = runSaveLoop().finally(() => {
+        inFlightRef.current = null;
+      });
+      inFlightRef.current = operation;
+      return operation;
+    },
+    [clearTimer, runSaveLoop],
+  );
 
   useEffect(() => {
-    saveNowRef.current = saveNow;
+    saveNowRef.current = () => saveNow(false);
   }, [saveNow]);
 
   const updateDraft = useCallback(
@@ -224,7 +267,7 @@ export function useAutosave(initialSession: SessionResource) {
       return;
     }
     clearTimer();
-    timerRef.current = window.setTimeout(() => void saveNow(), 800);
+    timerRef.current = window.setTimeout(() => void saveNow(false), 800);
     return () => {
       clearTimer();
     };
@@ -233,6 +276,8 @@ export function useAutosave(initialSession: SessionResource) {
     draft.code,
     draft.name,
     draft.tags,
+    draft.ref_url,
+    draft.notes_markdown,
     isDirty,
     saveNow,
     status,
@@ -265,7 +310,7 @@ export function useAutosave(initialSession: SessionResource) {
     setHasUnsettledMutation(false);
     setConflict(null);
     setStatus("scheduled");
-    await saveNow();
+    await saveNow(false);
   }, [conflict, saveNow]);
 
   const loadServer = useCallback(() => {

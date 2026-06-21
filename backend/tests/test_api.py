@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -44,6 +45,8 @@ def test_create_read_patch_and_delete(client: TestClient, create_session) -> Non
     assert fetched.status_code == 200
     assert fetched.json()["name"] == "Warmup"
     assert fetched.json()["tags"] == ["Algorithms", "Practice"]
+    assert fetched.json()["ref_url"] is None
+    assert fetched.json()["notes_markdown"] == ""
 
     patched = client.patch(
         f"/api/v1/sessions/{session_id}",
@@ -58,6 +61,7 @@ def test_create_read_patch_and_delete(client: TestClient, create_session) -> Non
     assert patched.json()["session"]["revision"] == 2
     assert patched.json()["session"]["code"] == "print(1)\n"
     assert patched.json()["session"]["tags"] == ["Interview"]
+    assert patched.json()["mutation"]["auto_tags_added"] == []
 
     deleted = client.request(
         "DELETE",
@@ -66,6 +70,112 @@ def test_create_read_patch_and_delete(client: TestClient, create_session) -> Non
     )
     assert deleted.status_code == 204
     assert client.get(f"/api/v1/sessions/{session_id}").status_code == 404
+
+
+def test_metadata_create_patch_list_and_clear(
+    client: TestClient, create_session
+) -> None:
+    session = create_session(
+        name="Metadata",
+        ref_url="https://example.com/docs/start",
+        notes_markdown="# Notes\n",
+        mutation_id="metadata-create",
+    )["session"]
+    assert session["ref_url"] == "https://example.com/docs/start"
+    assert session["notes_markdown"] == "# Notes\n"
+
+    listed = client.get("/api/v1/sessions").json()["items"][0]
+    assert listed["ref_url"] == "https://example.com/docs/start"
+    assert "notes_markdown" not in listed
+
+    cleared = client.patch(
+        f"/api/v1/sessions/{session['id']}",
+        json={
+            "ref_url": "",
+            "notes_markdown": "",
+            "expected_revision": 1,
+            "mutation_id": "metadata-clear",
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["session"]["ref_url"] is None
+    assert cleared.json()["session"]["notes_markdown"] == ""
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/relative",
+        "javascript:alert(1)",
+        "data:text/plain,hello",
+        "https://user:password@example.com",
+        "https://exa mple.com",
+        "https://example.com:99999",
+        "https://" + ("a" * 2040) + ".com",
+    ],
+)
+def test_reference_url_validation_rejects_unsafe_values(
+    client: TestClient, url: str
+) -> None:
+    response = client.post(
+        "/api/v1/sessions",
+        json={
+            "name": "Invalid URL",
+            "code": "",
+            "ref_url": url,
+            "mutation_id": f"invalid-url-{len(url)}",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert url not in response.text
+
+
+def test_notes_enforce_utf8_byte_limit(client: TestClient) -> None:
+    accepted = client.post(
+        "/api/v1/sessions",
+        json={
+            "name": "Accepted notes",
+            "code": "",
+            "notes_markdown": "a" * 131_072,
+            "mutation_id": "notes-accepted",
+        },
+    )
+    rejected = client.post(
+        "/api/v1/sessions",
+        json={
+            "name": "Rejected notes",
+            "code": "",
+            "notes_markdown": "🐍" * 32_769,
+            "mutation_id": "notes-rejected",
+        },
+    )
+
+    assert accepted.status_code == 201
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"
+
+
+def test_patch_with_only_auto_tag_flag_is_allowed(
+    client: TestClient, create_session
+) -> None:
+    session = create_session(
+        code="import json\nprint(json.dumps({}))\n",
+        mutation_id="auto-create",
+    )["session"]
+    response = client.patch(
+        f"/api/v1/sessions/{session['id']}",
+        json={
+            "auto_tag_if_empty": True,
+            "expected_revision": 1,
+            "mutation_id": "auto-patch",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session"]["tags"][0] == "JSON"
+    assert response.json()["mutation"]["auto_tags_added"][0] == "JSON"
 
 
 def test_duplicate_create_returns_existing_receipt(client: TestClient) -> None:

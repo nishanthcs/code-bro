@@ -23,7 +23,7 @@ from .models import (
     SessionListResponse,
     SessionResource,
 )
-from .repository import RepositoryError, SessionRepository
+from .repository import UNSET, RepositoryError, SessionRepository
 
 
 def is_api_path(path: str) -> bool:
@@ -179,6 +179,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload.code,
             payload.mutation_id,
             payload.tags,
+            (
+                payload.ref_url
+                if "ref_url" in payload.model_fields_set
+                else UNSET
+            ),
+            (
+                payload.notes_markdown
+                if "notes_markdown" in payload.model_fields_set
+                else UNSET
+            ),
         )
         response = MutationResponse(session=session, mutation=mutation)
         if mutation["duplicate"]:
@@ -201,6 +211,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             name=payload.name,
             code=payload.code,
             tags=payload.tags,
+            ref_url=(
+                payload.ref_url
+                if "ref_url" in payload.model_fields_set
+                else UNSET
+            ),
+            notes_markdown=(
+                payload.notes_markdown
+                if "notes_markdown" in payload.model_fields_set
+                else UNSET
+            ),
+            auto_tag_if_empty=(
+                payload.auto_tag_if_empty
+                if "auto_tag_if_empty" in payload.model_fields_set
+                else UNSET
+            ),
             expected_revision=payload.expected_revision,
             mutation_id=payload.mutation_id,
         )
