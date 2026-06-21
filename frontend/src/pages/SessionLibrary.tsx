@@ -3,6 +3,7 @@ import {
   Clock3,
   Code2,
   Database,
+  ExternalLink,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -21,6 +22,7 @@ import {
   listSessions,
   patchSession,
 } from "../lib/api";
+import { shortenReferenceUrl } from "../lib/referenceUrl";
 import { formatRelativeTime } from "../lib/format";
 import type { SessionSummary } from "../types";
 
@@ -574,51 +576,66 @@ export function SessionLibrary() {
               </div>
               {sessions.map((session) => (
                 <article className="session-row" role="row" key={session.id}>
-                  <button
-                    className="session-row-main"
-                    type="button"
-                    onClick={() => navigate(`/sessions/${session.id}`)}
-                  >
-                    <span className="session-identity">
-                      <span className="file-badge">PY</span>
-                      <span className="session-copy">
-                        <strong>{session.name}</strong>
-                        <span className="session-subline">
-                          <code>
-                            {session.code_preview || "# Empty session"}
-                          </code>
-                          {session.tags.length > 0 && (
-                            <span
-                              className="session-tags"
-                              aria-label={`Tags: ${session.tags.join(", ")}`}
-                            >
-                              {session.tags.map((tag) => (
-                                <span className="session-tag" key={tag}>
-                                  {tag}
-                                </span>
-                              ))}
-                            </span>
-                          )}
+                  <div className="session-row-main-wrapper">
+                    <button
+                      className="session-row-main"
+                      type="button"
+                      onClick={() => navigate(`/sessions/${session.id}`)}
+                    >
+                      <span className="session-identity">
+                        <span className="file-badge">PY</span>
+                        <span className="session-copy">
+                          <strong>{session.name}</strong>
+                          <span className="session-subline">
+                            <code>
+                              {session.code_preview || "# Empty session"}
+                            </code>
+                            {session.tags.length > 0 && (
+                              <span
+                                className="session-tags"
+                                aria-label={`Tags: ${session.tags.join(", ")}`}
+                              >
+                                {session.tags.map((tag) => (
+                                  <span className="session-tag" key={tag}>
+                                    {tag}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    <time
-                      className="session-date"
-                      dateTime={session.updated_at}
-                      title={new Date(session.updated_at).toLocaleString()}
-                    >
-                      <strong>{formatRelativeTime(session.updated_at)}</strong>
-                      <span>{formatDate(session.updated_at)}</span>
-                    </time>
-                    <time
-                      className="session-date"
-                      dateTime={session.created_at}
-                      title={new Date(session.created_at).toLocaleString()}
-                    >
-                      <strong>{formatDate(session.created_at)}</strong>
-                      <span>Created</span>
-                    </time>
-                  </button>
+                      <time
+                        className="session-date"
+                        dateTime={session.updated_at}
+                        title={new Date(session.updated_at).toLocaleString()}
+                      >
+                        <strong>{formatRelativeTime(session.updated_at)}</strong>
+                        <span>{formatDate(session.updated_at)}</span>
+                      </time>
+                      <time
+                        className="session-date"
+                        dateTime={session.created_at}
+                        title={new Date(session.created_at).toLocaleString()}
+                      >
+                        <strong>{formatDate(session.created_at)}</strong>
+                        <span>Created</span>
+                      </time>
+                    </button>
+                    {session.ref_url && (
+                      <a
+                        className="session-ref-link"
+                        href={session.ref_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={session.ref_url}
+                        aria-label={`Reference: ${session.ref_url}`}
+                      >
+                        <ExternalLink size={11} />
+                        Reference · {shortenReferenceUrl(session.ref_url, 44)}
+                      </a>
+                    )}
+                  </div>
                   <div className="card-menu">
                     <button
                       ref={(node) => {

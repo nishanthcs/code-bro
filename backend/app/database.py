@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class DatabaseMigrationError(RuntimeError):
@@ -112,10 +112,34 @@ def _migrate_to_version_3(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_to_version_4(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_reference_urls (
+            session_id TEXT PRIMARY KEY
+                REFERENCES sessions(id) ON DELETE CASCADE,
+            url TEXT NOT NULL CHECK(length(url) BETWEEN 1 AND 2048),
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_notes (
+            session_id TEXT PRIMARY KEY
+                REFERENCES sessions(id) ON DELETE CASCADE,
+            markdown TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migrate_to_version_1,
     2: _migrate_to_version_2,
     3: _migrate_to_version_3,
+    4: _migrate_to_version_4,
 }
 
 

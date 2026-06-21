@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useBeforeUnload, useBlocker } from "react-router-dom";
 
 const LEAVE_MESSAGE = "Leave without saving your latest changes?";
@@ -13,6 +13,7 @@ export function useDirtyDraftNavigation({
   abandon: () => void;
 }) {
   const handlingRef = useRef(false);
+  const mountedRef = useRef(true);
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
       isDirty &&
@@ -20,6 +21,11 @@ export function useDirtyDraftNavigation({
         currentLocation.search !== nextLocation.search ||
         currentLocation.hash !== nextLocation.hash),
   );
+  const blockerRef = useRef(blocker);
+
+  useLayoutEffect(() => {
+    blockerRef.current = blocker;
+  }, [blocker]);
 
   useBeforeUnload(
     (event) => {
@@ -31,30 +37,52 @@ export function useDirtyDraftNavigation({
   );
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (blocker.state !== "blocked" || handlingRef.current) return;
     handlingRef.current = true;
-    let active = true;
+    let savedSuccessfully = false;
 
     void saveNow()
       .then((saved) => {
-        if (!active) return;
+        if (!mountedRef.current) return;
         if (saved) {
-          blocker.proceed();
+          savedSuccessfully = true;
+          const currentBlocker = blockerRef.current;
+          if (currentBlocker.state === "blocked") {
+            try {
+              currentBlocker.proceed();
+            } catch (error) {
+              if (
+                !(error instanceof Error) ||
+                !error.message.includes(
+                  "Invalid blocker state transition: unblocked -> proceeding",
+                )
+              ) {
+                throw error;
+              }
+            }
+          }
           return;
         }
+        const currentBlocker = blockerRef.current;
+        if (currentBlocker.state !== "blocked") return;
         if (window.confirm(LEAVE_MESSAGE)) {
           abandon();
-          blocker.proceed();
+          currentBlocker.proceed();
         } else {
-          blocker.reset();
+          currentBlocker.reset();
         }
       })
       .finally(() => {
-        handlingRef.current = false;
+        if (!savedSuccessfully) {
+          handlingRef.current = false;
+        }
       });
-
-    return () => {
-      active = false;
-    };
   }, [abandon, blocker, saveNow]);
 }

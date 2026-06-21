@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Check,
   CloudAlert,
+  ExternalLink,
   LoaderCircle,
   Play,
   RotateCcw,
@@ -27,7 +28,10 @@ import { ConflictDialog } from "../components/ConflictDialog";
 import { EditorSettings } from "../components/EditorSettings";
 import { ResizeHandle } from "../components/ResizeHandle";
 import { RunnerPanel } from "../components/RunnerPanel";
-import { SessionTagEditor } from "../components/SessionTagEditor";
+import {
+  SessionMetadataPanel,
+  type SessionMetadataPanelHandle,
+} from "../components/SessionMetadataPanel";
 import { useDragResize } from "../hooks/useDragResize";
 import { useDirtyDraftNavigation } from "../hooks/useDirtyDraftNavigation";
 import { getSession } from "../lib/api";
@@ -85,10 +89,11 @@ function PlaygroundContent({
   const [editorResetToken, setEditorResetToken] = useState(0);
   const sessionNameRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const metadataPanelRef = useRef<SessionMetadataPanelHandle | null>(null);
 
   useDirtyDraftNavigation({
     isDirty: autosave.isDirty,
-    saveNow: autosave.saveNow,
+    saveNow: () => autosave.saveNow(false),
     abandon: autosave.abandon,
   });
   const runnerWidthMax = Math.round(
@@ -111,7 +116,7 @@ function PlaygroundContent({
 
   const handleRun = useCallback(() => {
     if (!canRun) return;
-    void autosave.saveNow();
+    void autosave.saveNow(false);
     execution.run(autosave.draft.code, stdin);
   }, [autosave, canRun, execution, stdin]);
 
@@ -122,13 +127,23 @@ function PlaygroundContent({
     navigate(location.pathname, { replace: true, state: null });
   }, [focusSessionName, location.pathname, navigate]);
 
+  const expandAndFocusTags = useCallback(() => {
+    metadataPanelRef.current?.expand();
+    requestAnimationFrame(() => {
+      tagInputRef.current?.focus();
+    });
+  }, []);
+
   useEffect(() => {
     const handlePlaygroundShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void autosave.saveNow();
+        const draft = autosave.draft;
+        const isEmptyAndUntagged =
+          draft.tags.length === 0 && draft.code.trim().length > 0;
+        void autosave.saveNow(isEmptyAndUntagged);
         return;
       }
       if (modifier && event.key === "Enter") {
@@ -148,13 +163,23 @@ function PlaygroundContent({
         event.key.toLowerCase() === "t"
       ) {
         event.preventDefault();
-        tagInputRef.current?.focus();
+        expandAndFocusTags();
+        return;
+      }
+      if (
+        event.ctrlKey &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "m"
+      ) {
+        event.preventDefault();
+        metadataPanelRef.current?.toggle();
+        return;
       }
     };
     window.addEventListener("keydown", handlePlaygroundShortcut);
     return () =>
       window.removeEventListener("keydown", handlePlaygroundShortcut);
-  }, [autosave, handleRun]);
+  }, [autosave, handleRun, expandAndFocusTags]);
 
   return (
     <AppShell
@@ -162,6 +187,18 @@ function PlaygroundContent({
       actions={
         <>
           <SaveIndicator status={autosave.status} />
+          {autosave.draft.ref_url && (
+            <a
+              className="ghost-button ghost-button--small"
+              href={autosave.draft.ref_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={autosave.draft.ref_url}
+            >
+              <ExternalLink size={13} />
+              Open reference
+            </a>
+          )}
           {execution.status === "running" ? (
             <button className="stop-button" type="button" onClick={execution.stop}>
               <Square size={15} fill="currentColor" />
@@ -215,19 +252,31 @@ function PlaygroundContent({
               aria-keyshortcuts="F2"
               title="Session name (F2)"
             />
-            <SessionTagEditor
-              tags={autosave.draft.tags}
-              onChange={(tags) =>
-                autosave.setDraft((current) => ({ ...current, tags }))
-              }
-              inputRef={tagInputRef}
-            />
           </div>
           <span className="language-pill">
             <span />
             Python
           </span>
         </div>
+        <SessionMetadataPanel
+          ref={metadataPanelRef}
+          tags={autosave.draft.tags}
+          onTagsChange={(tags) =>
+            autosave.setDraft((current) => ({ ...current, tags }))
+          }
+          refUrl={autosave.draft.ref_url}
+          onRefUrlChange={(url) =>
+            autosave.setDraft((current) => ({ ...current, ref_url: url }))
+          }
+          notesMarkdown={autosave.draft.notes_markdown}
+          onNotesMarkdownChange={(markdown) =>
+            autosave.setDraft((current) => ({
+              ...current,
+              notes_markdown: markdown,
+            }))
+          }
+          tagInputRef={tagInputRef}
+        />
         <div
           className="workspace-grid"
           style={{ "--runner-width": `${runnerWidth}px` } as CSSProperties}

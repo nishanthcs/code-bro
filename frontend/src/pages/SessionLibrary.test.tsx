@@ -62,17 +62,19 @@ class MockIntersectionObserver {
   }
 }
 
-function summary(
+function makeSummary(
   id: string,
   name: string,
   {
     createdAt = "2026-06-20T00:00:00Z",
     updatedAt = "2026-06-20T00:00:00Z",
     tags = [],
+    refUrl = null,
   }: {
     createdAt?: string;
     updatedAt?: string;
     tags?: string[];
+    refUrl?: string | null;
   } = {},
 ): SessionSummary {
   return {
@@ -83,6 +85,7 @@ function summary(
     revision: 1,
     created_at: createdAt,
     updated_at: updatedAt,
+    ref_url: refUrl,
   };
 }
 
@@ -95,6 +98,8 @@ function resource(id: string, name: string): SessionResource {
     revision: 1,
     created_at: "2026-06-20T00:00:00Z",
     updated_at: "2026-06-20T00:00:00Z",
+    ref_url: null,
+    notes_markdown: "",
   };
 }
 
@@ -106,6 +111,7 @@ function mutation(id: string, name: string): MutationResponse {
       applied_revision: 1,
       duplicate: false,
       superseded: false,
+      auto_tags_added: [],
     },
   };
 }
@@ -178,8 +184,8 @@ describe("SessionLibrary data operations", () => {
     await waitFor(() => expect(mockedListSessions).toHaveBeenCalledTimes(2));
 
     act(() => {
-      second.resolve(page([summary("current", "Current")]));
-      first.resolve(page([summary("stale", "Stale")]));
+      second.resolve(page([makeSummary("current", "Current")]));
+      first.resolve(page([makeSummary("stale", "Stale")]));
     });
 
     expect(await screen.findByText("Current")).toBeInTheDocument();
@@ -189,7 +195,7 @@ describe("SessionLibrary data operations", () => {
   it("deduplicates page items and refuses duplicate cursor requests", async () => {
     const nextPage = deferred<SessionListResponse>();
     mockedListSessions
-      .mockResolvedValueOnce(page([summary("a", "Alpha")], "cursor-1"))
+      .mockResolvedValueOnce(page([makeSummary("a", "Alpha")], "cursor-1"))
       .mockReturnValueOnce(nextPage.promise);
     renderLibrary();
 
@@ -207,7 +213,7 @@ describe("SessionLibrary data operations", () => {
     act(() => {
       nextPage.resolve(
         page(
-          [summary("a", "Alpha"), summary("b", "Beta")],
+          [makeSummary("a", "Alpha"), makeSummary("b", "Beta")],
           "cursor-1",
         ),
       );
@@ -222,8 +228,8 @@ describe("SessionLibrary data operations", () => {
   it("renders a searchable list and reloads for ordering and date filters", async () => {
     mockedListSessions.mockResolvedValue(
       page([
-        summary("a", "Alpha", { tags: ["Algorithms"] }),
-        summary("b", "Bravo", {
+        makeSummary("a", "Alpha", { tags: ["Algorithms"] }),
+        makeSummary("b", "Bravo", {
           createdAt: "2026-05-01T00:00:00Z",
           updatedAt: "2026-06-19T00:00:00Z",
         }),
@@ -271,6 +277,25 @@ describe("SessionLibrary data operations", () => {
         },
       ),
     );
+  });
+
+  it("opens a shortened reference link without navigating to the session", async () => {
+    mockedListSessions.mockResolvedValue(
+      page([
+        makeSummary("a", "Alpha", {
+          refUrl: "https://www.example.com/docs/reference",
+        }),
+      ]),
+    );
+    const router = renderLibrary();
+
+    const reference = await screen.findByRole("link", {
+      name: "Reference: https://www.example.com/docs/reference",
+    });
+    expect(reference).toHaveTextContent("Reference · example.com/docs/reference");
+    expect(reference).toHaveAttribute("target", "_blank");
+    expect(reference).toHaveAttribute("rel", "noopener noreferrer");
+    expect(router.state.location.pathname).toBe("/");
   });
 
   it("shows the current data path in a read-only settings panel", async () => {
@@ -344,7 +369,7 @@ describe("SessionLibrary data operations", () => {
   });
 
   it("reuses the caller-owned delete mutation ID after an uncertain failure", async () => {
-    mockedListSessions.mockResolvedValue(page([summary("a", "Alpha")]));
+    mockedListSessions.mockResolvedValue(page([makeSummary("a", "Alpha")]));
     mockedDeleteSession
       .mockRejectedValueOnce(new Error("connection lost"))
       .mockResolvedValueOnce(undefined);
@@ -371,7 +396,7 @@ describe("SessionLibrary data operations", () => {
   });
 
   it("reuses the caller-owned rename mutation ID after an uncertain failure", async () => {
-    mockedListSessions.mockResolvedValue(page([summary("a", "Alpha")]));
+    mockedListSessions.mockResolvedValue(page([makeSummary("a", "Alpha")]));
     mockedPatchSession
       .mockRejectedValueOnce(new Error("connection lost"))
       .mockResolvedValueOnce(mutation("a", "Renamed"));
@@ -396,7 +421,7 @@ describe("SessionLibrary data operations", () => {
   });
 
   it("traps rename-dialog focus and restores it to the session actions button", async () => {
-    mockedListSessions.mockResolvedValue(page([summary("a", "Alpha")]));
+    mockedListSessions.mockResolvedValue(page([makeSummary("a", "Alpha")]));
     renderLibrary();
     const user = userEvent.setup();
     const actions = await screen.findByRole("button", {
@@ -416,7 +441,7 @@ describe("SessionLibrary data operations", () => {
   });
 
   it("traps delete-dialog focus and restores it to the session actions button", async () => {
-    mockedListSessions.mockResolvedValue(page([summary("a", "Alpha")]));
+    mockedListSessions.mockResolvedValue(page([makeSummary("a", "Alpha")]));
     renderLibrary();
     const user = userEvent.setup();
     const actions = await screen.findByRole("button", {

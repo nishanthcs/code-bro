@@ -31,16 +31,23 @@ def create_session(client: TestClient):
         name: str = "Untitled Session",
         code: str = 'print("Hello")\n',
         tags: list[str] | None = None,
+        ref_url: str | None = None,
+        notes_markdown: str | None = None,
         mutation_id: str = "create-1",
     ) -> dict:
+        payload = {
+            "name": name,
+            "code": code,
+            "tags": tags or [],
+            "mutation_id": mutation_id,
+        }
+        if ref_url is not None:
+            payload["ref_url"] = ref_url
+        if notes_markdown is not None:
+            payload["notes_markdown"] = notes_markdown
         response = client.post(
             "/api/v1/sessions",
-            json={
-                "name": name,
-                "code": code,
-                "tags": tags or [],
-                "mutation_id": mutation_id,
-            },
+            json=payload,
         )
         assert response.status_code == 201
         return response.json()

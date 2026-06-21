@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from urllib.parse import urlsplit
 
 import unicodedata
 
@@ -40,6 +41,42 @@ def validate_tags(value: list[str]) -> list[str]:
     return value
 
 
+def validate_reference_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if len(stripped) > 2048:
+        raise ValueError("Reference URL must be 2048 characters or fewer")
+    if any(
+        character.isspace()
+        or unicodedata.category(character).startswith("C")
+        for character in stripped
+    ):
+        raise ValueError("Reference URL must not contain whitespace or controls")
+    parsed = urlsplit(stripped)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Reference URL must use http or https scheme")
+    if not parsed.netloc or not parsed.hostname:
+        raise ValueError("Reference URL must include a hostname")
+    if parsed.username or parsed.password:
+        raise ValueError("Reference URL must not contain credentials")
+    try:
+        parsed.port
+    except ValueError as error:
+        raise ValueError("Reference URL contains an invalid port") from error
+    return stripped
+
+
+def validate_notes_markdown(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if len(value.encode("utf-8")) > 131_072:
+        raise ValueError("Notes must be 128 KiB or smaller when encoded as UTF-8")
+    return value
+
+
 class SessionResource(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +87,8 @@ class SessionResource(BaseModel):
     revision: int
     created_at: str
     updated_at: str
+    ref_url: str | None = None
+    notes_markdown: str = ""
 
 
 class SessionSummary(BaseModel):
@@ -60,6 +99,7 @@ class SessionSummary(BaseModel):
     revision: int
     created_at: str
     updated_at: str
+    ref_url: str | None = None
 
 
 class SessionListResponse(BaseModel):
@@ -76,6 +116,7 @@ class MutationMeta(BaseModel):
     applied_revision: int
     duplicate: bool = False
     superseded: bool = False
+    auto_tags_added: list[str] = Field(default_factory=list)
 
 
 class MutationResponse(BaseModel):
@@ -87,18 +128,27 @@ class CreateSessionRequest(BaseModel):
     name: str = Field(default="Untitled Session", max_length=120)
     code: str = Field(default='print("Hello, world!")\n', max_length=1_048_576)
     tags: list[str] = Field(default_factory=list)
+    ref_url: str | None = None
+    notes_markdown: str | None = None
     mutation_id: str = Field(min_length=1, max_length=128)
 
     _validate_name = field_validator("name")(validate_name)
     _validate_code = field_validator("code")(validate_code)
     _validate_tags = field_validator("tags")(validate_tags)
     _validate_mutation_id = field_validator("mutation_id")(validate_mutation_id)
+    _validate_ref_url = field_validator("ref_url")(validate_reference_url)
+    _validate_notes_markdown = field_validator("notes_markdown")(
+        validate_notes_markdown
+    )
 
 
 class PatchSessionRequest(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     code: str | None = Field(default=None, max_length=1_048_576)
     tags: list[str] | None = None
+    ref_url: str | None = None
+    notes_markdown: str | None = None
+    auto_tag_if_empty: bool = False
     expected_revision: int = Field(ge=1)
     mutation_id: str = Field(min_length=1, max_length=128)
 
@@ -106,11 +156,25 @@ class PatchSessionRequest(BaseModel):
     _validate_code = field_validator("code")(validate_code)
     _validate_tags = field_validator("tags")(validate_tags)
     _validate_mutation_id = field_validator("mutation_id")(validate_mutation_id)
+    _validate_ref_url = field_validator("ref_url")(validate_reference_url)
+    _validate_notes_markdown = field_validator("notes_markdown")(
+        validate_notes_markdown
+    )
 
     @model_validator(mode="after")
     def require_a_change(self) -> "PatchSessionRequest":
-        if self.name is None and self.code is None and self.tags is None:
-            raise ValueError("At least one of name, code, or tags is required")
+        if (
+            self.name is None
+            and self.code is None
+            and self.tags is None
+            and "ref_url" not in self.model_fields_set
+            and "notes_markdown" not in self.model_fields_set
+            and not self.auto_tag_if_empty
+        ):
+            raise ValueError(
+                "At least one of name, code, tags, ref_url, notes_markdown, "
+                "or auto_tag_if_empty is required"
+            )
         return self
 
 

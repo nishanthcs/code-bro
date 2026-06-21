@@ -2,12 +2,13 @@
 
 CodeBro is a local-first Python playground for macOS. It provides a focused
 Python editor, in-browser execution, named and tagged autosaved sessions,
-search, and light/dark themes.
+search, local automatic tagging, reference URLs, Markdown Notes, and
+light/dark themes.
 
 ## Session dashboard
 
-- Compact list view with session name, tags, code preview, updated date, and
-  created date.
+- Compact list view with session name, tags, code preview, optional shortened
+  Reference link, updated date, and created date.
 - Server-backed name-or-tag search, recency/name ordering, and updated-date
   filters.
 - Read-only Settings panel showing the active SQLite database path.
@@ -25,7 +26,14 @@ search, and light/dark themes.
 - `Cmd+S` on macOS or `Ctrl+S` elsewhere saves immediately.
 - `Cmd+Enter` on macOS or `Ctrl+Enter` elsewhere runs the current code.
 - New sessions focus and select the session name. Press `F2` to return to the
-  name field or `Ctrl+Shift+T` to focus the tag editor.
+  name field or `Ctrl+Shift+T` to expand metadata and focus the tag editor.
+- `Ctrl+Shift+M` toggles the metadata drawer. Its disclosure preference is
+  UI-only and restored locally.
+- Saving non-empty code with no tags applies up to two deterministic local
+  tags. Existing matching tags are reused before a new tag is generated.
+- Sessions may store one absolute HTTP(S) Reference URL and up to 128 KiB of
+  raw UTF-8 Markdown Notes. Notes preview supports common Markdown and GFM,
+  does not render raw HTML, and never loads remote images.
 - Press `Escape`, then `Tab`, to move keyboard focus out of the code editor.
 - The stdin panel can be closed so the console occupies the full runner column.
 - Editor/runner sizing, stdin sizing and visibility, and each session's cursor

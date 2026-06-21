@@ -74,6 +74,8 @@ function session(id: string, name: string): SessionResource {
     revision: 1,
     created_at: "2026-06-20T00:00:00Z",
     updated_at: "2026-06-20T00:00:00Z",
+    ref_url: null,
+    notes_markdown: "",
   };
 }
 
@@ -188,18 +190,30 @@ describe("Playground session loading", () => {
     const stdin = await screen.findByRole("textbox", { name: "Stdin" });
     stdin.focus();
     fireEvent.keyDown(window, { key: "F2" });
-    expect(
-      screen.getByRole("textbox", { name: "Session name" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Session name" }),
+      ).toHaveFocus(),
+    );
 
     fireEvent.keyDown(window, {
       key: "t",
       ctrlKey: true,
       shiftKey: true,
     });
-    expect(
-      screen.getByRole("combobox", { name: "Add session tag" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Add session tag" }),
+      ).toHaveFocus(),
+    );
+
+    const metadataToggle = screen.getByRole("button", { name: /Metadata/ });
+    fireEvent.keyDown(window, {
+      key: "m",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(metadataToggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("keeps a loaded conflict version saved after resetting the editor", async () => {

@@ -6,6 +6,8 @@ export interface SessionResource {
   revision: number;
   created_at: string;
   updated_at: string;
+  ref_url: string | null;
+  notes_markdown: string;
 }
 
 export interface SessionSummary {
@@ -16,6 +18,7 @@ export interface SessionSummary {
   revision: number;
   created_at: string;
   updated_at: string;
+  ref_url: string | null;
 }
 
 export interface SessionListResponse {
@@ -32,6 +35,7 @@ export interface MutationMeta {
   applied_revision: number;
   duplicate: boolean;
   superseded: boolean;
+  auto_tags_added: string[];
 }
 
 export interface MutationResponse {

@@ -41,10 +41,40 @@ try {
     throw new Error("A new session did not focus its name field.");
   }
   await page.keyboard.type("Keyboard Smoke");
-  const tagInput = page.getByRole("textbox", { name: "Add session tag" });
+  const metadataToggle = page.getByRole("button", { name: /Metadata/ });
+  await metadataToggle.waitFor();
+  await page.keyboard.press("Control+Shift+M");
+  if ((await metadataToggle.getAttribute("aria-expanded")) !== "true") {
+    throw new Error("The metadata shortcut did not expand the drawer.");
+  }
+  const tagInput = page.getByRole("combobox", { name: "Add session tag" });
   await tagInput.fill("browser");
   await page.keyboard.press("Enter");
   await page.getByText("browser", { exact: true }).waitFor();
+  const referenceUrl = "https://example.com/docs/reference";
+  await page.getByRole("textbox", { name: "Reference URL" }).fill(referenceUrl);
+  await page.keyboard.press("Tab");
+  await page.getByRole("link", {
+    name: `Open reference: ${referenceUrl}`,
+  }).waitFor();
+  const notes = page.getByRole("textbox", { name: "Session notes" });
+  await notes.fill(
+    "# Smoke notes\n\n[Docs](https://example.com/docs)\n\n![tracker](https://tracker.example/pixel.png)",
+  );
+  await page.getByRole("button", { name: "Preview" }).click();
+  await page.getByRole("heading", { name: "Smoke notes" }).waitFor();
+  if ((await page.getByLabel("Notes preview").locator("img").count()) !== 0) {
+    throw new Error("Markdown Notes rendered a remote image.");
+  }
+  const notesLink = page.getByLabel("Notes preview").getByRole("link", {
+    name: "Docs",
+  });
+  if (
+    (await notesLink.getAttribute("target")) !== "_blank" ||
+    (await notesLink.getAttribute("rel")) !== "noopener noreferrer"
+  ) {
+    throw new Error("Markdown Notes did not harden external links.");
+  }
   await page.getByLabel("Python code editor").waitFor();
 
   const editor = page.getByLabel("Python code editor");
@@ -125,8 +155,34 @@ try {
   }
   await page.getByRole("button", { name: "Close program input panel" }).click();
 
+  await page.keyboard.press("Control+Shift+M");
+  if ((await metadataToggle.getAttribute("aria-expanded")) !== "false") {
+    throw new Error("The metadata shortcut did not collapse the drawer.");
+  }
   await page.reload({ waitUntil: "networkidle" });
   await page.getByLabel("Python code editor").waitFor();
+  const restoredMetadataToggle = page.getByRole("button", { name: /Metadata/ });
+  if ((await restoredMetadataToggle.getAttribute("aria-expanded")) !== "false") {
+    throw new Error("The metadata disclosure preference was not restored.");
+  }
+  await page.keyboard.press("Control+Shift+M");
+  if (
+    (await page.getByRole("textbox", { name: "Reference URL" }).inputValue()) !==
+    referenceUrl
+  ) {
+    throw new Error("The session Reference URL was not restored.");
+  }
+  if (
+    !(await page
+      .getByRole("textbox", { name: "Session notes" })
+      .inputValue()).includes("# Smoke notes")
+  ) {
+    throw new Error("The session Markdown Notes were not restored.");
+  }
+  await page.getByRole("link", {
+    name: "Open reference",
+    exact: true,
+  }).waitFor();
   await page.getByRole("button", { name: "Show input" }).waitFor();
   if (
     (await page
@@ -166,6 +222,36 @@ try {
   });
 
   await page.getByRole("button", { name: "Sessions" }).click();
+  const dashboardReference = page.getByRole("link", {
+    name: `Reference: ${referenceUrl}`,
+  }).first();
+  await dashboardReference.waitFor();
+  if (!(await dashboardReference.textContent()).includes("example.com/docs")) {
+    throw new Error("The dashboard did not shorten the Reference URL.");
+  }
+
+  await page.getByRole("button", { name: "New session" }).click();
+  await page.getByRole("textbox", { name: "Session name" }).fill("Existing Tag Smoke");
+  const existingTagEditor = page.getByLabel("Python code editor");
+  await existingTagEditor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("browser = True\nprint(browser)");
+  await page.keyboard.press("Meta+S");
+  await page.getByText("browser", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Sessions" }).click();
+
+  await page.getByRole("button", { name: "New session" }).click();
+  await page.getByRole("textbox", { name: "Session name" }).fill("Generated Tag Smoke");
+  const generatedTagEditor = page.getByLabel("Python code editor");
+  await generatedTagEditor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText(
+    "from dataclasses import dataclass\n\n@dataclass\nclass Point:\n    x: int\n\nprint(Point(1))",
+  );
+  await page.keyboard.press("Meta+S");
+  await page.getByText("Data Classes", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Sessions" }).click();
+
   await page.keyboard.press("/");
   const sessionSearch = page.getByRole("textbox", {
     name: "Search sessions by name or tag",
@@ -182,7 +268,9 @@ try {
     state: "detached",
   });
 
-  console.log("CodeBro browser smoke passed: create, edit, run, save, theme, return.");
+  console.log(
+    "CodeBro browser smoke passed: metadata, auto-tags, edit, run, save, theme, return.",
+  );
 } finally {
   await browser.close();
 }
