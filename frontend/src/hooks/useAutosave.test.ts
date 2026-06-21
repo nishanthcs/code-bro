@@ -21,6 +21,7 @@ function session(
     id: "session-1",
     name: "Draft",
     code,
+    tags: [],
     revision,
     created_at: "2026-06-20T00:00:00Z",
     updated_at: "2026-06-20T00:00:00Z",
@@ -170,6 +171,36 @@ describe("useAutosave", () => {
     expect(mockedPatchSession.mock.calls[1]?.[1].mutation_id).not.toBe(
       rejectedMutationId,
     );
+    expect(result.current.status).toBe("saved");
+  });
+
+  it("persists tag-only changes", async () => {
+    mockedPatchSession.mockResolvedValue(
+      response({ ...session("first", 2), tags: ["Python"] }),
+    );
+    const { result } = renderHook(() => useAutosave(session("first")));
+
+    act(() => {
+      result.current.setDraft((current) => ({
+        ...current,
+        tags: ["Python"],
+      }));
+    });
+    expect(result.current.isDirty).toBe(true);
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+
+    expect(mockedPatchSession).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        tags: ["Python"],
+        expected_revision: 1,
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(result.current.isDirty).toBe(false);
     expect(result.current.status).toBe("saved");
   });
 

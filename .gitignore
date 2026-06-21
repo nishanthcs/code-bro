@@ -24,3 +24,8 @@ artifacts/
 *.sqlite3-wal
 build/
 release/
+.aider*
+/.aider.tags.cache.v4/
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/

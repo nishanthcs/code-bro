@@ -1,30 +1,97 @@
 import {
-  ArrowRight,
+  CalendarDays,
+  Clock3,
   Code2,
+  Database,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
-  Sparkles,
+  Settings2,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { useModalFocus } from "../hooks/useModalFocus";
 import {
   createSession,
   deleteSession,
+  getAppSettings,
   listSessions,
   patchSession,
 } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import type { SessionSummary } from "../types";
 
+type SessionSort =
+  | "updated_desc"
+  | "updated_asc"
+  | "created_desc"
+  | "name_asc";
+type DateRange = "all" | "today" | "7d" | "30d";
+
+const SESSION_SORTS: { value: SessionSort; label: string }[] = [
+  { value: "updated_desc", label: "Recently updated" },
+  { value: "updated_asc", label: "Least recently updated" },
+  { value: "created_desc", label: "Newest created" },
+  { value: "name_asc", label: "Name A–Z" },
+];
+
+const DATE_RANGES: { value: DateRange; label: string }[] = [
+  { value: "all", label: "Any date" },
+  { value: "today", label: "Updated today" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+];
+
+function isSessionSort(value: string | null): value is SessionSort {
+  return SESSION_SORTS.some((option) => option.value === value);
+}
+
+function isDateRange(value: string | null): value is DateRange {
+  return DATE_RANGES.some((option) => option.value === value);
+}
+
+function dateThreshold(range: DateRange): string | null {
+  if (range === "all") return null;
+  const threshold = new Date();
+  if (range === "today") {
+    threshold.setHours(0, 0, 0, 0);
+  } else {
+    threshold.setDate(threshold.getDate() - (range === "7d" ? 7 : 30));
+  }
+  return threshold.toISOString();
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+  );
+}
+
 export function SessionLibrary() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  const [sort, setSort] = useState<SessionSort>(() => {
+    const value = searchParams.get("sort");
+    return isSessionSort(value) ? value : "updated_desc";
+  });
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const value = searchParams.get("date");
+    return isDateRange(value) ? value : "all";
+  });
+  const updatedAfter = useMemo(() => dateThreshold(dateRange), [dateRange]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +101,12 @@ export function SessionLibrary() {
   const [renameTarget, setRenameTarget] = useState<SessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPath, setSettingsPath] = useState("");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const generationRef = useRef(0);
   const listControllersRef = useRef(new Set<AbortController>());
   const requestedCursorsRef = useRef(new Set<string>());
@@ -44,8 +116,10 @@ export function SessionLibrary() {
   const renameMutationIdsRef = useRef(new Map<string, string>());
   const deleteMutationIdsRef = useRef(new Map<string, string>());
   const deleteControllerRef = useRef<AbortController | null>(null);
+  const settingsControllerRef = useRef<AbortController | null>(null);
   const actionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const renameDialogRef = useModalFocus<HTMLFormElement>({
     active: renameTarget !== null,
     returnFocusRef: dialogReturnFocusRef,
@@ -54,11 +128,17 @@ export function SessionLibrary() {
     active: deleteTarget !== null,
     returnFocusRef: dialogReturnFocusRef,
   });
+  const settingsDialogRef = useModalFocus<HTMLDivElement>({
+    active: settingsOpen,
+    returnFocusRef: settingsButtonRef,
+  });
 
   const load = useCallback(async (
     nextQuery: string,
     nextCursor: string | null,
     generation: number,
+    nextSort: SessionSort,
+    nextUpdatedAfter: string | null,
   ) => {
     const requestKey = nextCursor ?? "__first_page__";
     if (
@@ -77,6 +157,7 @@ export function SessionLibrary() {
         nextQuery,
         nextCursor,
         controller.signal,
+        { sort: nextSort, updatedAfter: nextUpdatedAfter },
       );
       if (
         controller.signal.aborted ||
@@ -128,17 +209,21 @@ export function SessionLibrary() {
       setSessions([]);
       setCursor(null);
       setLoading(true);
-      void load(nextQuery, null, generation);
+      void load(nextQuery, null, generation, sort, updatedAfter);
     },
-    [load],
+    [load, sort, updatedAfter],
   );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setSearchParams(query.trim() ? { q: query.trim() } : {}, { replace: true });
+      const nextParams: Record<string, string> = {};
+      if (query.trim()) nextParams.q = query.trim();
+      if (sort !== "updated_desc") nextParams.sort = sort;
+      if (dateRange !== "all") nextParams.date = dateRange;
+      setSearchParams(nextParams, { replace: true });
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [query, setSearchParams]);
+  }, [dateRange, query, setSearchParams, sort]);
 
   useEffect(() => {
     generationRef.current += 1;
@@ -153,10 +238,10 @@ export function SessionLibrary() {
       setLoading(true);
     });
     const timer = window.setTimeout(() => {
-      void load(query, null, generation);
+      void load(query, null, generation, sort, updatedAfter);
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [load, query]);
+  }, [dateRange, load, query, sort, updatedAfter]);
 
   useEffect(() => {
     const listControllers = listControllersRef.current;
@@ -166,6 +251,7 @@ export function SessionLibrary() {
       createControllerRef.current?.abort();
       renameControllerRef.current?.abort();
       deleteControllerRef.current?.abort();
+      settingsControllerRef.current?.abort();
     };
   }, []);
 
@@ -174,14 +260,20 @@ export function SessionLibrary() {
     if (!node || !cursor) return;
     const observer = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting) {
-        void load(query, cursor, generationRef.current);
+        void load(
+          query,
+          cursor,
+          generationRef.current,
+          sort,
+          updatedAfter,
+        );
       }
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [cursor, load, query]);
+  }, [cursor, load, query, sort, updatedAfter]);
 
-  const handleCreate = async () => {
+  const handleCreate = useCallback(async () => {
     if (creating || createControllerRef.current) return;
     setCreating(true);
     const mutationId =
@@ -192,7 +284,9 @@ export function SessionLibrary() {
     try {
       const response = await createSession(mutationId, controller.signal);
       createMutationIdRef.current = null;
-      navigate(`/sessions/${response.session.id}`);
+      navigate(`/sessions/${response.session.id}`, {
+        state: { focusSessionName: true },
+      });
     } catch (createError) {
       if (controller.signal.aborted) return;
       setError(
@@ -206,6 +300,62 @@ export function SessionLibrary() {
         createControllerRef.current = null;
       }
     }
+  }, [creating, navigate]);
+
+  useEffect(() => {
+    const handleDashboardShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isEditableTarget(event.target)
+      ) {
+        return;
+      }
+      if (event.key === "/") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        void handleCreate();
+      }
+    };
+    window.addEventListener("keydown", handleDashboardShortcut);
+    return () =>
+      window.removeEventListener("keydown", handleDashboardShortcut);
+  }, [handleCreate]);
+
+  const openSettings = async () => {
+    if (settingsControllerRef.current) return;
+    setSettingsOpen(true);
+    setSettingsLoading(true);
+    setSettingsError("");
+    const controller = new AbortController();
+    settingsControllerRef.current = controller;
+    try {
+      const response = await getAppSettings(controller.signal);
+      setSettingsPath(response.data_path);
+    } catch (settingsLoadError) {
+      if (controller.signal.aborted) return;
+      setSettingsError(
+        settingsLoadError instanceof Error
+          ? settingsLoadError.message
+          : "Could not load the data path.",
+      );
+    } finally {
+      if (settingsControllerRef.current === controller) {
+        settingsControllerRef.current = null;
+        setSettingsLoading(false);
+      }
+    }
+  };
+
+  const closeSettings = () => {
+    settingsControllerRef.current?.abort();
+    settingsControllerRef.current = null;
+    setSettingsLoading(false);
+    setSettingsOpen(false);
   };
 
   const openRename = (session: SessionSummary) => {
@@ -303,59 +453,95 @@ export function SessionLibrary() {
   return (
     <AppShell
       actions={
-        <button
-          className="primary-button"
-          type="button"
-          onClick={handleCreate}
-          disabled={creating}
-        >
-          <Plus size={17} />
-          {creating ? "Creating…" : "New session"}
-        </button>
+        <>
+          <button
+            ref={settingsButtonRef}
+            className="secondary-button"
+            type="button"
+            onClick={() => void openSettings()}
+          >
+            <Settings2 size={16} />
+            Settings
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={handleCreate}
+            disabled={creating}
+            aria-keyshortcuts="N"
+            title="New session (N)"
+          >
+            <Plus size={17} />
+            {creating ? "Creating…" : "New session"}
+          </button>
+        </>
       }
     >
       <main className="library">
-        <section className="library-hero">
-          <div>
-            <span className="hero-kicker">
-              <Sparkles size={14} />
-              Your local Python workspace
-            </span>
-            <h1>Pick up where you left off.</h1>
-            <p>
-              Focused coding sessions, instant Python runs, and no noisy
-              suggestions getting between you and the problem.
-            </p>
-          </div>
-          <div className="hero-orb" aria-hidden="true">
-            <Code2 size={38} />
-          </div>
-        </section>
-
         <section className="session-section">
-          <div className="session-toolbar">
+          <div className="session-heading">
             <div>
               <span className="eyebrow">Workspace</span>
-              <h2>Your sessions</h2>
+              <h1>Sessions</h1>
+              <p>Search, sort, and resume your saved Python work.</p>
             </div>
+            <span className="session-count">
+              {sessions.length} loaded
+            </span>
+          </div>
+          <div className="session-toolbar">
             <label className="search-field">
               <Search size={17} />
               <input
+                ref={searchInputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search sessions"
-                aria-label="Search sessions"
+                placeholder="Search names or tags"
+                aria-label="Search sessions by name or tag"
+                aria-keyshortcuts="/"
               />
               <kbd>/</kbd>
+            </label>
+            <label className="session-select">
+              <Clock3 size={15} />
+              <span className="sr-only">Order sessions</span>
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as SessionSort)}
+                aria-label="Order sessions"
+              >
+                {SESSION_SORTS.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="session-select">
+              <CalendarDays size={15} />
+              <span className="sr-only">Filter by updated date</span>
+              <select
+                value={dateRange}
+                onChange={(event) =>
+                  setDateRange(event.target.value as DateRange)
+                }
+                aria-label="Filter by updated date"
+              >
+                {DATE_RANGES.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
 
           {error && <div className="inline-error">{error}</div>}
 
           {loading && sessions.length === 0 ? (
-            <div className="session-grid" aria-label="Loading sessions">
-              {[0, 1, 2].map((item) => (
-                <div className="session-card session-card--skeleton" key={item} />
+            <div className="session-list" aria-label="Loading sessions">
+              {[0, 1, 2, 3].map((item) => (
+                <div className="session-row session-row--skeleton" key={item} />
               ))}
             </div>
           ) : sessions.length === 0 ? (
@@ -363,11 +549,15 @@ export function SessionLibrary() {
               <span className="empty-icon">
                 <Code2 size={27} />
               </span>
-              <h3>{query ? "No matching sessions" : "Your first idea starts here"}</h3>
+              <h3>
+                {query || dateRange !== "all"
+                  ? "No matching sessions"
+                  : "No sessions yet"}
+              </h3>
               <p>
-                {query
-                  ? "Try another name, or create a fresh session."
-                  : "Create a session and CodeBro will keep every edit saved locally."}
+                {query || dateRange !== "all"
+                  ? "Change the search or date filter and try again."
+                  : "Create a session to start writing Python."}
               </p>
               <button className="primary-button" type="button" onClick={handleCreate}>
                 <Plus size={17} />
@@ -375,26 +565,59 @@ export function SessionLibrary() {
               </button>
             </div>
           ) : (
-            <div className="session-grid">
+            <div className="session-list" role="table" aria-label="Sessions">
+              <div className="session-list-header" role="row">
+                <span role="columnheader">Session</span>
+                <span role="columnheader">Updated</span>
+                <span role="columnheader">Created</span>
+                <span role="columnheader">Actions</span>
+              </div>
               {sessions.map((session) => (
-                <article className="session-card" key={session.id}>
+                <article className="session-row" role="row" key={session.id}>
                   <button
-                    className="session-card-main"
+                    className="session-row-main"
                     type="button"
                     onClick={() => navigate(`/sessions/${session.id}`)}
                   >
-                    <div className="session-card-top">
+                    <span className="session-identity">
                       <span className="file-badge">PY</span>
-                      <span title={new Date(session.updated_at).toLocaleString()}>
-                        {formatRelativeTime(session.updated_at)}
+                      <span className="session-copy">
+                        <strong>{session.name}</strong>
+                        <span className="session-subline">
+                          <code>
+                            {session.code_preview || "# Empty session"}
+                          </code>
+                          {session.tags.length > 0 && (
+                            <span
+                              className="session-tags"
+                              aria-label={`Tags: ${session.tags.join(", ")}`}
+                            >
+                              {session.tags.map((tag) => (
+                                <span className="session-tag" key={tag}>
+                                  {tag}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </span>
                       </span>
-                    </div>
-                    <h3>{session.name}</h3>
-                    <code>{session.code_preview || "# Empty session"}</code>
-                    <span className="open-label">
-                      Open session
-                      <ArrowRight size={15} />
                     </span>
+                    <time
+                      className="session-date"
+                      dateTime={session.updated_at}
+                      title={new Date(session.updated_at).toLocaleString()}
+                    >
+                      <strong>{formatRelativeTime(session.updated_at)}</strong>
+                      <span>{formatDate(session.updated_at)}</span>
+                    </time>
+                    <time
+                      className="session-date"
+                      dateTime={session.created_at}
+                      title={new Date(session.created_at).toLocaleString()}
+                    >
+                      <strong>{formatDate(session.created_at)}</strong>
+                      <span>Created</span>
+                    </time>
                   </button>
                   <div className="card-menu">
                     <button
@@ -521,6 +744,53 @@ export function SessionLibrary() {
                 onClick={() => void handleDelete()}
               >
                 Delete session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {settingsOpen && (
+        <div className="dialog-backdrop" role="presentation">
+          <div
+            ref={settingsDialogRef}
+            className="dialog settings-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            tabIndex={-1}
+          >
+            <span className="dialog-icon">
+              <Database size={20} />
+            </span>
+            <div>
+              <span className="eyebrow">Application settings</span>
+              <h2 id="settings-title">Data storage</h2>
+              <p>
+                CodeBro saves session names and Python source in this SQLite
+                database.
+              </p>
+              {settingsLoading ? (
+                <div className="settings-path-status">Loading data path…</div>
+              ) : settingsError ? (
+                <div className="inline-error settings-path-status">
+                  {settingsError}
+                </div>
+              ) : (
+                <input
+                  className="settings-path-input"
+                  aria-label="Data storage path"
+                  value={settingsPath}
+                  readOnly
+                />
+              )}
+            </div>
+            <div className="dialog-actions">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={closeSettings}
+              >
+                Close
               </button>
             </div>
           </div>

@@ -40,11 +40,12 @@ All implementation artifacts remain inside this repository.
 
 ## Verification outcome
 
-- Backend: 28 tests passing.
-- Frontend: 47 tests, ESLint, TypeScript, and Vite build passing.
+- Backend: 36 tests passing.
+- Frontend: 56 tests, ESLint, TypeScript, and Vite build passing.
 - Runtime: Pyodide 314.0.0 executed `main.py` successfully.
-- Browser: create, edit, autosave, run with stdin, output, theme toggle, and
-  navigation passed in headless Chrome.
+- Browser: create, name autofocus, tag edit/search, keyboard focus escape,
+  editor-state restoration, autosave, run with stdin, output, theme toggle,
+  server-offline feedback, and navigation passed in headless Chrome.
 - Packaging: PyInstaller produced a 46 MiB onedir macOS application containing
   the frontend, SQLite backend, execution origin, and bundled Pyodide assets.
 
@@ -110,3 +111,32 @@ Status: complete. Frontend tests, ESLint, and TypeScript typechecking pass.
   app versions, and added optional signing/notarization/stapling support.
 
 Status: complete and verified.
+
+## Session dashboard and indentation
+
+- Replaced the marketing hero and card grid with a compact session list.
+- Added server-backed ordering by update recency, creation date, and name.
+- Added updated-date filters for today, seven days, thirty days, and all time.
+- Added a read-only Settings panel that displays the resolved SQLite data path.
+- Restored CodeMirror's language-aware Enter command so Python blocks retain
+  indentation on new lines.
+
+Status: complete. Backend/frontend tests, lint, typecheck, production build, and
+browser smoke pass.
+
+## Tags, keyboard flow, and local UI restoration
+
+- Added normalized session tags to SQLite, API resources, autosave, mutation
+  receipts, and list summaries.
+- Expanded server-backed dashboard search to match session names or tags.
+- Added accessible tag chips and tag entry in the playground, with Enter/comma
+  commit, blur commit, Backspace removal, and explicit remove controls.
+- New sessions focus and select the session name.
+- Added dashboard `/` search and `N` create shortcuts, playground `F2` name and
+  `Ctrl+Shift+T` tag shortcuts, and page-level save/run shortcuts.
+- Added CodeMirror's Escape-then-Tab focus escape behavior.
+- Persisted editor/runner sizing, stdin sizing and open state, and per-session
+  cursor selections in localStorage without storing session content.
+
+Status: complete. Backend/frontend tests, lint, typecheck, production build,
+Pyodide smoke, and browser smoke pass.

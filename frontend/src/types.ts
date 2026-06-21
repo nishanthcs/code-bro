@@ -2,6 +2,7 @@ export interface SessionResource {
   id: string;
   name: string;
   code: string;
+  tags: string[];
   revision: number;
   created_at: string;
   updated_at: string;
@@ -11,6 +12,7 @@ export interface SessionSummary {
   id: string;
   name: string;
   code_preview: string;
+  tags: string[];
   revision: number;
   created_at: string;
   updated_at: string;
@@ -19,6 +21,10 @@ export interface SessionSummary {
 export interface SessionListResponse {
   items: SessionSummary[];
   next_cursor: string | null;
+}
+
+export interface AppSettings {
+  data_path: string;
 }
 
 export interface MutationMeta {
@@ -57,4 +63,3 @@ export interface OutputFragment {
   stream: "stdout" | "stderr" | "system";
   text: string;
 }
-

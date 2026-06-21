@@ -23,6 +23,12 @@ export const DEFAULT_EDITOR_FONT_SIZE: EditorFontSize = 13;
 export const DEFAULT_EDITOR_THEME: EditorThemeId = "auto";
 export const DEFAULT_RUNNER_WIDTH = 380;
 export const DEFAULT_STDIN_HEIGHT_PERCENT = 34;
+export const DEFAULT_STDIN_COLLAPSED = false;
+
+export interface EditorCursorState {
+  anchor: number;
+  head: number;
+}
 
 export const RUNNER_WIDTH_MIN = 280;
 export const RUNNER_WIDTH_MAX_RATIO = 0.55;
@@ -34,10 +40,11 @@ const STORAGE_KEYS = {
   editorTheme: "codebro-editor-theme",
   runnerWidth: "codebro-runner-width",
   stdinHeight: "codebro-stdin-height",
+  stdinCollapsed: "codebro-stdin-collapsed",
+  editorCursorPrefix: "codebro-editor-cursor:",
 } as const;
 
 export function safeStorage(): Storage | null {
-  if (import.meta.env.MODE === "test") return null;
   try {
     return window.localStorage ?? null;
   } catch {
@@ -95,6 +102,44 @@ export function initialStdinHeight(): number {
   return DEFAULT_STDIN_HEIGHT_PERCENT;
 }
 
+export function initialStdinCollapsed(): boolean {
+  const stored = safeStorage()?.getItem(STORAGE_KEYS.stdinCollapsed);
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return DEFAULT_STDIN_COLLAPSED;
+}
+
+function editorCursorKey(sessionId: string): string {
+  return `${STORAGE_KEYS.editorCursorPrefix}${sessionId}`;
+}
+
+export function initialEditorCursor(
+  sessionId: string,
+  documentLength: number,
+): EditorCursorState {
+  const raw = safeStorage()?.getItem(editorCursorKey(sessionId));
+  if (!raw) return { anchor: 0, head: 0 };
+  try {
+    const value = JSON.parse(raw) as Partial<EditorCursorState>;
+    if (
+      !Number.isInteger(value.anchor) ||
+      !Number.isInteger(value.head) ||
+      value.anchor === undefined ||
+      value.head === undefined ||
+      value.anchor < 0 ||
+      value.head < 0
+    ) {
+      return { anchor: 0, head: 0 };
+    }
+    return {
+      anchor: Math.min(value.anchor, documentLength),
+      head: Math.min(value.head, documentLength),
+    };
+  } catch {
+    return { anchor: 0, head: 0 };
+  }
+}
+
 export function persistEditorFontSize(size: EditorFontSize): void {
   safeStorage()?.setItem(STORAGE_KEYS.editorFontSize, String(size));
 }
@@ -109,6 +154,17 @@ export function persistRunnerWidth(width: number): void {
 
 export function persistStdinHeight(percent: number): void {
   safeStorage()?.setItem(STORAGE_KEYS.stdinHeight, String(Math.round(percent)));
+}
+
+export function persistStdinCollapsed(collapsed: boolean): void {
+  safeStorage()?.setItem(STORAGE_KEYS.stdinCollapsed, String(collapsed));
+}
+
+export function persistEditorCursor(
+  sessionId: string,
+  cursor: EditorCursorState,
+): void {
+  safeStorage()?.setItem(editorCursorKey(sessionId), JSON.stringify(cursor));
 }
 
 export function stepEditorFontSize(

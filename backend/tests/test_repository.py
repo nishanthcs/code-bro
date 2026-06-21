@@ -11,7 +11,12 @@ from app.database import (
     Database,
     UnsupportedSchemaVersionError,
 )
-from app.repository import SessionRepository, normalize_name
+from app.repository import (
+    SessionRepository,
+    canonical_hash,
+    normalize_name,
+    normalize_tags,
+)
 
 
 def create_version_1_database(path: Path, code: str = "") -> None:
@@ -69,6 +74,13 @@ def test_blank_name_becomes_untitled() -> None:
     assert normalize_name("   ")[0] == "Untitled Session"
 
 
+def test_tags_are_normalized_and_deduplicated() -> None:
+    tags, search = normalize_tags(["  Python ", "python", "ＤＰ"])
+
+    assert tags == ["Python", "DP"]
+    assert search == "python\ndp"
+
+
 def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     database = Database(tmp_path / "database.sqlite3")
     database.migrate()
@@ -87,6 +99,8 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
         }
     assert version == SCHEMA_VERSION
     assert "code_preview" in columns
+    assert "tags_json" in columns
+    assert "tags_search" in columns
 
 
 def test_migration_backfills_persisted_code_preview(tmp_path: Path) -> None:
@@ -239,6 +253,151 @@ def test_code_preview_is_persisted_and_list_does_not_select_code(
     selected_columns = list_select.split("FROM sessions", 1)[0]
     assert " code," not in selected_columns
     assert "code_preview" in selected_columns
+
+
+def test_session_listing_supports_sort_date_filter_and_pagination(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    sessions = {
+        name: repository.create_session(name, "", f"create-{name.lower()}")[0]
+        for name in ("Alpha", "Bravo", "Charlie")
+    }
+    timestamps = {
+        "Alpha": ("2026-01-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z"),
+        "Bravo": ("2026-02-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"),
+        "Charlie": ("2026-03-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"),
+    }
+    with database.transaction() as connection:
+        for name, (created_at, updated_at) in timestamps.items():
+            connection.execute(
+                """
+                UPDATE sessions
+                SET created_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (created_at, updated_at, sessions[name]["id"]),
+            )
+
+    recently_updated, _ = repository.list_sessions(
+        "", 50, None, sort="updated_desc"
+    )
+    oldest_updated, _ = repository.list_sessions(
+        "", 50, None, sort="updated_asc"
+    )
+    newest_created, _ = repository.list_sessions(
+        "", 50, None, sort="created_desc"
+    )
+    filtered, _ = repository.list_sessions(
+        "",
+        50,
+        None,
+        sort="name_asc",
+        updated_after="2026-02-01T00:00:00.000Z",
+    )
+
+    assert [item["name"] for item in recently_updated] == [
+        "Alpha",
+        "Charlie",
+        "Bravo",
+    ]
+    assert [item["name"] for item in oldest_updated] == [
+        "Bravo",
+        "Charlie",
+        "Alpha",
+    ]
+    assert [item["name"] for item in newest_created] == [
+        "Charlie",
+        "Bravo",
+        "Alpha",
+    ]
+    assert [item["name"] for item in filtered] == ["Alpha", "Charlie"]
+
+    first_page, cursor = repository.list_sessions(
+        "", 2, None, sort="name_asc"
+    )
+    second_page, next_cursor = repository.list_sessions(
+        "", 2, cursor, sort="name_asc"
+    )
+    assert [item["name"] for item in first_page] == ["Alpha", "Bravo"]
+    assert [item["name"] for item in second_page] == ["Charlie"]
+    assert next_cursor is None
+
+
+def test_session_listing_searches_names_and_tags(tmp_path: Path) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    repository.create_session(
+        "Graph traversal",
+        "",
+        "create-graph",
+        ["Algorithms", "Interview Prep"],
+    )
+    repository.create_session(
+        "Scratch pad",
+        "",
+        "create-scratch",
+        ["Notes"],
+    )
+
+    by_name, _ = repository.list_sessions("graph", 50, None)
+    by_tag, _ = repository.list_sessions("INTERVIEW", 50, None)
+
+    assert [item["name"] for item in by_name] == ["Graph traversal"]
+    assert [item["name"] for item in by_tag] == ["Graph traversal"]
+    assert by_tag[0]["tags"] == ["Algorithms", "Interview Prep"]
+
+
+def test_empty_tags_preserve_pre_tag_mutation_hashes(tmp_path: Path) -> None:
+    database = Database(tmp_path / "database.sqlite3")
+    database.migrate()
+    repository = SessionRepository(database)
+    session, _ = repository.create_session(
+        "Legacy compatible",
+        "print(1)\n",
+        "legacy-create",
+    )
+    repository.patch_session(
+        session["id"],
+        name="Legacy rename",
+        code=None,
+        expected_revision=1,
+        mutation_id="legacy-patch",
+    )
+
+    with database.connect() as connection:
+        hashes = {
+            row["mutation_id"]: row["request_hash"]
+            for row in connection.execute(
+                """
+                SELECT mutation_id, request_hash
+                FROM mutations
+                WHERE mutation_id IN ('legacy-create', 'legacy-patch')
+                """
+            )
+        }
+
+    assert hashes["legacy-create"] == canonical_hash(
+        "create",
+        {
+            "name": "Legacy compatible",
+            "code": "print(1)\n",
+            "mutation_id": "legacy-create",
+        },
+    )
+    assert hashes["legacy-patch"] == canonical_hash(
+        "patch",
+        {
+            "session_id": session["id"],
+            "name": "Legacy rename",
+            "code": None,
+            "expected_revision": 1,
+            "mutation_id": "legacy-patch",
+        },
+    )
 
 
 def test_mutation_receipts_are_never_aged_out(tmp_path: Path) -> None:

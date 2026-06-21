@@ -70,6 +70,7 @@ function session(id: string, name: string): SessionResource {
     id,
     name,
     code: `print("${name}")`,
+    tags: [],
     revision: 1,
     created_at: "2026-06-20T00:00:00Z",
     updated_at: "2026-06-20T00:00:00Z",
@@ -84,7 +85,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function renderPlayground(initialEntry = "/sessions/one") {
+function renderPlayground(
+  initialEntry:
+    | string
+    | {
+        pathname: string;
+        state: { focusSessionName: boolean };
+      } = "/sessions/one",
+) {
   const router = createMemoryRouter(
     [
       { path: "/", element: <div>Session library</div> },
@@ -152,6 +160,46 @@ describe("Playground session loading", () => {
     act(() => second.resolve(session("two", "Second")));
     expect(await screen.findByDisplayValue("Second")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Stdin" })).toHaveValue("");
+  });
+
+  it("focuses and selects the name for a newly created session", async () => {
+    mockedGetSession.mockResolvedValue(session("one", "Untitled Session"));
+    renderPlayground({
+      pathname: "/sessions/one",
+      state: { focusSessionName: true },
+    });
+
+    const name = await screen.findByRole("textbox", {
+      name: "Session name",
+    });
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAttribute("aria-keyshortcuts", "F2");
+    expect(name).toHaveProperty("selectionStart", 0);
+    expect(name).toHaveProperty(
+      "selectionEnd",
+      "Untitled Session".length,
+    );
+  });
+
+  it("focuses session metadata with keyboard shortcuts", async () => {
+    mockedGetSession.mockResolvedValue(session("one", "Original"));
+    renderPlayground();
+
+    const stdin = await screen.findByRole("textbox", { name: "Stdin" });
+    stdin.focus();
+    fireEvent.keyDown(window, { key: "F2" });
+    expect(
+      screen.getByRole("textbox", { name: "Session name" }),
+    ).toHaveFocus();
+
+    fireEvent.keyDown(window, {
+      key: "t",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(
+      screen.getByRole("textbox", { name: "Add session tag" }),
+    ).toHaveFocus();
   });
 
   it("keeps a loaded conflict version saved after resetting the editor", async () => {

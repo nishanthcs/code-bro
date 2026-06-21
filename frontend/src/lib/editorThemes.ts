@@ -13,8 +13,9 @@ const lightTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: "#f2f0ff" },
     ".cm-activeLineGutter": { backgroundColor: "#f2f0ff", color: "#5e687a" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-      backgroundColor: "#dcd5ff",
+    ".cm-content ::selection": {
+      backgroundColor: "#b9adff",
+      color: "#111827",
     },
   },
   { dark: false },
@@ -32,8 +33,9 @@ const darkTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: "#171b25" },
     ".cm-activeLineGutter": { backgroundColor: "#171b25", color: "#aab2c1" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-      backgroundColor: "#443d68",
+    ".cm-content ::selection": {
+      backgroundColor: "#6653bd",
+      color: "#ffffff",
     },
   },
   { dark: true },
@@ -51,8 +53,9 @@ const midnightTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: "#12151f" },
     ".cm-activeLineGutter": { backgroundColor: "#12151f", color: "#8b95a8" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-      backgroundColor: "#3b3358",
+    ".cm-content ::selection": {
+      backgroundColor: "#5b469e",
+      color: "#ffffff",
     },
   },
   { dark: true },
@@ -70,8 +73,9 @@ const solarizedTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: "#073642" },
     ".cm-activeLineGutter": { backgroundColor: "#073642", color: "#93a1a1" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-      backgroundColor: "#274753",
+    ".cm-content ::selection": {
+      backgroundColor: "#155564",
+      color: "#fdf6e3",
     },
   },
   { dark: true },
@@ -89,8 +93,9 @@ const paperTheme = EditorView.theme(
     },
     ".cm-activeLine": { backgroundColor: "#efe6d4" },
     ".cm-activeLineGutter": { backgroundColor: "#efe6d4", color: "#7a6a56" },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-      backgroundColor: "#e2d2b5",
+    ".cm-content ::selection": {
+      backgroundColor: "#d4b984",
+      color: "#271f18",
     },
   },
   { dark: false },

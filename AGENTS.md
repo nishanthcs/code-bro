@@ -9,9 +9,10 @@ CodeBro is a local-first macOS Python playground. It provides:
 - No autocomplete, completion popovers, snippets, lint suggestions, automatic
   imports, or AI code assistance.
 - Python execution through Pyodide in a disposable Web Worker.
-- Named sessions persisted in a local SQLite database through FastAPI.
-- Search, autosave, revision conflict handling, soft deletion, and light/dark
-  themes.
+- Named and tagged sessions persisted in a local SQLite database through
+  FastAPI.
+- Name-or-tag search, autosave, revision conflict handling, soft deletion, and
+  light/dark themes.
 - A packaged Apple-silicon macOS application and DMG.
 
 ## Repository Layout
@@ -65,15 +66,16 @@ but CodeBro must not import or configure the autocomplete extension.
 
 ### Persistence
 
-- SQLite is the durable source of truth for session names and code.
+- SQLite is the durable source of truth for session names, tags, and code.
 - Do not store session source code in local storage.
-- Theme preference may remain in local storage because it is UI-only state.
+- Theme, editor layout, stdin visibility, and cursor preferences may remain in
+  local storage because they are UI-only state.
 - Preserve optimistic revisions and durable mutation receipts.
 - Check mutation receipts before revision conflicts so retries remain
   idempotent after lost responses.
 - Keep session deletion soft.
-- Search names using the same Unicode NFKC normalization and case folding for
-  writes and queries.
+- Search names and tags using the same Unicode NFKC normalization and case
+  folding for writes and queries.
 
 ### Execution
 

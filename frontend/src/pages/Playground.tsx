@@ -9,21 +9,37 @@ import {
   Save,
   Square,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { CodeEditor } from "../components/CodeEditor";
 import { ConflictDialog } from "../components/ConflictDialog";
 import { EditorSettings } from "../components/EditorSettings";
 import { ResizeHandle } from "../components/ResizeHandle";
 import { RunnerPanel } from "../components/RunnerPanel";
+import { SessionTagEditor } from "../components/SessionTagEditor";
 import { useDragResize } from "../hooks/useDragResize";
+import { useDirtyDraftNavigation } from "../hooks/useDirtyDraftNavigation";
 import { getSession } from "../lib/api";
 import {
   clampRunnerWidth,
+  initialStdinCollapsed,
   initialRunnerWidth,
   initialStdinHeight,
+  persistStdinCollapsed,
   persistRunnerWidth,
+  RUNNER_WIDTH_MAX_RATIO,
+  RUNNER_WIDTH_MIN,
 } from "../lib/preferences";
 import { useAutosave } from "../hooks/useAutosave";
 import { useExecution } from "../hooks/useExecution";
@@ -39,50 +55,106 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
   } as const;
   const [Icon, label] = content[status];
   return (
-    <span className={`save-indicator save-indicator--${status}`}>
+    <span
+      className={`save-indicator save-indicator--${status}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       <Icon size={14} className={status === "saving" ? "spin" : ""} />
       {label}
     </span>
   );
 }
 
-function PlaygroundContent({ session }: { session: SessionResource }) {
+function PlaygroundContent({
+  session,
+  focusSessionName,
+}: {
+  session: SessionResource;
+  focusSessionName: boolean;
+}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const autosave = useAutosave(session);
   const execution = useExecution();
   const [stdin, setStdin] = useState("");
   const [runnerWidth, setRunnerWidth] = useState(initialRunnerWidth);
   const [stdinHeightPercent, setStdinHeightPercent] = useState(initialStdinHeight);
+  const [stdinCollapsed, setStdinCollapsed] = useState(initialStdinCollapsed);
   const [editorResetToken, setEditorResetToken] = useState(0);
+  const sessionNameRef = useRef<HTMLInputElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+
+  useDirtyDraftNavigation({
+    isDirty: autosave.isDirty,
+    saveNow: autosave.saveNow,
+    abandon: autosave.abandon,
+  });
+  const runnerWidthMax = Math.round(
+    window.innerWidth * RUNNER_WIDTH_MAX_RATIO,
+  );
 
   const runnerResize = useDragResize({
     direction: "horizontal",
-    min: 280,
-    max: Math.round(window.innerWidth * 0.55),
+    min: RUNNER_WIDTH_MIN,
+    max: runnerWidthMax,
     onChange: setRunnerWidth,
     onCommit: (width) => persistRunnerWidth(clampRunnerWidth(width)),
   });
-
-  const handleRun = useCallback(() => {
-    void autosave.saveNow();
-    execution.run(autosave.draft.code, stdin);
-  }, [autosave, execution, stdin]);
-
-  const handleBack = async () => {
-    if (autosave.isDirty) {
-      const saved = await autosave.saveNow();
-      if (!saved && !window.confirm("Leave without saving your latest changes?")) {
-        return;
-      }
-    }
-    navigate("/");
-  };
 
   const canRun =
     execution.workerReady &&
     ["ready", "completed", "failed", "stopped", "timed-out"].includes(
       execution.status,
     );
+
+  const handleRun = useCallback(() => {
+    if (!canRun) return;
+    void autosave.saveNow();
+    execution.run(autosave.draft.code, stdin);
+  }, [autosave, canRun, execution, stdin]);
+
+  useEffect(() => {
+    if (!focusSessionName) return;
+    sessionNameRef.current?.focus();
+    sessionNameRef.current?.select();
+    navigate(location.pathname, { replace: true, state: null });
+  }, [focusSessionName, location.pathname, navigate]);
+
+  useEffect(() => {
+    const handlePlaygroundShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const modifier = event.metaKey || event.ctrlKey;
+      if (modifier && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void autosave.saveNow();
+        return;
+      }
+      if (modifier && event.key === "Enter") {
+        event.preventDefault();
+        handleRun();
+        return;
+      }
+      if (event.key === "F2") {
+        event.preventDefault();
+        sessionNameRef.current?.focus();
+        sessionNameRef.current?.select();
+        return;
+      }
+      if (
+        event.ctrlKey &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "t"
+      ) {
+        event.preventDefault();
+        tagInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handlePlaygroundShortcut);
+    return () =>
+      window.removeEventListener("keydown", handlePlaygroundShortcut);
+  }, [autosave, handleRun]);
 
   return (
     <AppShell
@@ -101,6 +173,8 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
               type="button"
               onClick={handleRun}
               disabled={!canRun}
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+              title="Run code (Cmd/Ctrl+Enter)"
             >
               {!execution.workerReady ? (
                 <LoaderCircle size={16} className="spin" />
@@ -120,23 +194,35 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
     >
       <main className="playground">
         <div className="workspace-bar">
-          <button className="back-button" type="button" onClick={handleBack}>
+          <button className="back-button" type="button" onClick={() => navigate("/")}>
             <ArrowLeft size={17} />
             Sessions
           </button>
           <span className="workspace-divider" />
-          <input
-            className="session-name-input"
-            value={autosave.draft.name}
-            onChange={(event) =>
-              autosave.setDraft((current) => ({
-                ...current,
-                name: event.target.value,
-              }))
-            }
-            maxLength={120}
-            aria-label="Session name"
-          />
+          <div className="workspace-session-fields">
+            <input
+              ref={sessionNameRef}
+              className="session-name-input"
+              value={autosave.draft.name}
+              onChange={(event) =>
+                autosave.setDraft((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+              maxLength={120}
+              aria-label="Session name"
+              aria-keyshortcuts="F2"
+              title="Session name (F2)"
+            />
+            <SessionTagEditor
+              tags={autosave.draft.tags}
+              onChange={(tags) =>
+                autosave.setDraft((current) => ({ ...current, tags }))
+              }
+              inputRef={tagInputRef}
+            />
+          </div>
           <span className="language-pill">
             <span />
             Python
@@ -154,6 +240,9 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
               </span>
               <div className="editor-tabbar__meta">
                 <EditorSettings />
+                <span className="editor-meta editor-tab-hint">
+                  Esc then Tab exits editor
+                </span>
                 <span className="editor-meta">
                   {autosave.draft.code.split("\n").length} lines
                 </span>
@@ -162,6 +251,7 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
             <CodeEditor
               key={session.id}
               value={autosave.draft.code}
+              sessionId={session.id}
               onChange={(code) =>
                 autosave.setDraft((current) => ({ ...current, code }))
               }
@@ -172,6 +262,14 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
           <ResizeHandle
             direction="horizontal"
             label="Resize editor and runner panels"
+            value={runnerWidth}
+            min={RUNNER_WIDTH_MIN}
+            max={runnerWidthMax}
+            step={10}
+            onValueChange={setRunnerWidth}
+            onValueCommit={(width) =>
+              persistRunnerWidth(clampRunnerWidth(width))
+            }
             onPointerDown={(event) =>
               runnerResize.handlePointerDown(event, runnerWidth)
             }
@@ -188,6 +286,14 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
             onClear={execution.clearOutput}
             stdinHeightPercent={stdinHeightPercent}
             onStdinHeightChange={setStdinHeightPercent}
+            stdinCollapsed={stdinCollapsed}
+            onToggleStdin={() =>
+              setStdinCollapsed((collapsed) => {
+                const next = !collapsed;
+                persistStdinCollapsed(next);
+                return next;
+              })
+            }
           />
         </div>
       </main>
@@ -215,18 +321,45 @@ function PlaygroundContent({ session }: { session: SessionResource }) {
 
 export function Playground() {
   const { sessionId } = useParams();
-  const [session, setSession] = useState<SessionResource | null>(null);
-  const [error, setError] = useState("");
+  const location = useLocation();
+  const [loadState, setLoadState] = useState<{
+    sessionId: string;
+    session: SessionResource | null;
+    error: string;
+  }>({ sessionId: "", session: null, error: "" });
+  const session =
+    loadState.sessionId === sessionId ? loadState.session : null;
+  const error = loadState.sessionId === sessionId ? loadState.error : "";
 
   useEffect(() => {
     if (!sessionId) return;
-    getSession(sessionId)
-      .then(setSession)
-      .catch((loadError: unknown) =>
-        setError(
-          loadError instanceof Error ? loadError.message : "Session not found.",
-        ),
-      );
+    const controller = new AbortController();
+    let active = true;
+    getSession(sessionId, controller.signal)
+      .then((loadedSession) => {
+        if (active) {
+          setLoadState({
+            sessionId,
+            session: loadedSession,
+            error: "",
+          });
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        setLoadState({
+          sessionId,
+          session: null,
+          error:
+            loadError instanceof Error
+              ? loadError.message
+              : "Session not found.",
+        });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [sessionId]);
 
   if (error) {
@@ -256,5 +389,15 @@ export function Playground() {
       </AppShell>
     );
   }
-  return <PlaygroundContent session={session} />;
+  const focusSessionName = Boolean(
+    (location.state as { focusSessionName?: boolean } | null)
+      ?.focusSessionName,
+  );
+  return (
+    <PlaygroundContent
+      key={session.id}
+      session={session}
+      focusSessionName={focusSessionName}
+    />
+  );
 }

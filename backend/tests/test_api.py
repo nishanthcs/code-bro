@@ -22,19 +22,34 @@ def test_application_csp_disallows_framing(client: TestClient) -> None:
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
 
 
+def test_settings_returns_resolved_read_only_data_path(client: TestClient) -> None:
+    response = client.get("/api/v1/settings")
+
+    assert response.status_code == 200
+    assert response.json()["data_path"] == str(
+        client.app.state.settings.database_path.resolve()
+    )
+
+
 def test_create_read_patch_and_delete(client: TestClient, create_session) -> None:
-    created = create_session(name="Warmup", code="print(1)\n")
+    created = create_session(
+        name="Warmup",
+        code="print(1)\n",
+        tags=["Algorithms", "Practice"],
+    )
     session = created["session"]
     session_id = session["id"]
 
     fetched = client.get(f"/api/v1/sessions/{session_id}")
     assert fetched.status_code == 200
     assert fetched.json()["name"] == "Warmup"
+    assert fetched.json()["tags"] == ["Algorithms", "Practice"]
 
     patched = client.patch(
         f"/api/v1/sessions/{session_id}",
         json={
             "name": "Warmup revised",
+            "tags": ["Interview"],
             "expected_revision": 1,
             "mutation_id": "patch-1",
         },
@@ -42,6 +57,7 @@ def test_create_read_patch_and_delete(client: TestClient, create_session) -> Non
     assert patched.status_code == 200
     assert patched.json()["session"]["revision"] == 2
     assert patched.json()["session"]["code"] == "print(1)\n"
+    assert patched.json()["session"]["tags"] == ["Interview"]
 
     deleted = client.request(
         "DELETE",
@@ -65,6 +81,61 @@ def test_duplicate_create_returns_existing_receipt(client: TestClient) -> None:
     assert second.status_code == 200
     assert second.json()["session"]["id"] == first.json()["session"]["id"]
     assert second.json()["mutation"]["duplicate"] is True
+
+
+def test_list_search_matches_tags_case_insensitively(
+    client: TestClient, create_session
+) -> None:
+    create_session(
+        name="Sorting exercise",
+        tags=["Data Structures", "Interview"],
+        mutation_id="create-tagged-session",
+    )
+    create_session(
+        name="Unrelated",
+        tags=["Scratch"],
+        mutation_id="create-unrelated-session",
+    )
+
+    response = client.get("/api/v1/sessions", params={"q": "structures"})
+
+    assert response.status_code == 200
+    assert [item["name"] for item in response.json()["items"]] == [
+        "Sorting exercise"
+    ]
+    assert response.json()["items"][0]["tags"] == [
+        "Data Structures",
+        "Interview",
+    ]
+
+
+def test_tags_are_normalized_deduplicated_and_bounded(
+    client: TestClient,
+) -> None:
+    accepted = client.post(
+        "/api/v1/sessions",
+        json={
+            "name": "Tagged",
+            "code": "",
+            "tags": ["  Python  ", "python", "ＤＰ"],
+            "mutation_id": "normalized-tags",
+        },
+    )
+
+    assert accepted.status_code == 201
+    assert accepted.json()["session"]["tags"] == ["Python", "DP"]
+
+    rejected = client.post(
+        "/api/v1/sessions",
+        json={
+            "name": "Too many tags",
+            "code": "",
+            "tags": [f"tag-{index}" for index in range(11)],
+            "mutation_id": "too-many-tags",
+        },
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"
 
 
 def test_rejects_code_larger_than_one_mebibyte_in_utf8(
@@ -275,6 +346,33 @@ def test_cursor_pagination_is_stable(client: TestClient, create_session) -> None
     assert set(item["id"] for item in first["items"]).isdisjoint(
         item["id"] for item in second["items"]
     )
+
+
+def test_session_list_accepts_sort_and_updated_date_filter(
+    client: TestClient, create_session
+) -> None:
+    alpha = create_session(name="Alpha", mutation_id="sort-alpha")["session"]
+    bravo = create_session(name="Bravo", mutation_id="sort-bravo")["session"]
+    with client.app.state.repository.database.transaction() as connection:
+        connection.execute(
+            "UPDATE sessions SET updated_at = ? WHERE id = ?",
+            ("2026-06-01T00:00:00.000Z", alpha["id"]),
+        )
+        connection.execute(
+            "UPDATE sessions SET updated_at = ? WHERE id = ?",
+            ("2026-06-20T00:00:00.000Z", bravo["id"]),
+        )
+
+    response = client.get(
+        "/api/v1/sessions",
+        params={
+            "sort": "name_asc",
+            "updated_after": "2026-06-10T00:00:00.000Z",
+        },
+    )
+
+    assert response.status_code == 200
+    assert [item["name"] for item in response.json()["items"]] == ["Bravo"]
 
 
 def test_mutations_require_json(client: TestClient) -> None:

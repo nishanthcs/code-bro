@@ -5,9 +5,11 @@ import {
   Clock3,
   Eraser,
   LoaderCircle,
+  PanelTopClose,
+  PanelTopOpen,
   TerminalSquare,
 } from "lucide-react";
-import { useRef, type CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { useVerticalPercentResize } from "../hooks/useDragResize";
 import {
   persistStdinHeight,
@@ -59,6 +61,8 @@ export function RunnerPanel({
   onClear,
   stdinHeightPercent,
   onStdinHeightChange,
+  stdinCollapsed,
+  onToggleStdin,
 }: {
   stdin: string;
   onStdinChange: (value: string) => void;
@@ -68,8 +72,13 @@ export function RunnerPanel({
   onClear: () => void;
   stdinHeightPercent: number;
   onStdinHeightChange: (percent: number) => void;
+  stdinCollapsed: boolean;
+  onToggleStdin: () => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
+  const stdinRef = useRef<HTMLTextAreaElement>(null);
+  const showInputRef = useRef<HTMLButtonElement>(null);
+  const previousStdinCollapsedRef = useRef(stdinCollapsed);
   const resize = useVerticalPercentResize({
     containerRef: panelRef,
     min: STDIN_HEIGHT_MIN,
@@ -78,42 +87,76 @@ export function RunnerPanel({
     onCommit: persistStdinHeight,
   });
 
+  useEffect(() => {
+    if (previousStdinCollapsedRef.current === stdinCollapsed) return;
+    previousStdinCollapsedRef.current = stdinCollapsed;
+    if (stdinCollapsed) {
+      showInputRef.current?.focus();
+    } else {
+      stdinRef.current?.focus();
+    }
+  }, [stdinCollapsed]);
+
   return (
     <aside
       ref={panelRef}
-      className="runner-panel"
+      className={
+        stdinCollapsed ? "runner-panel runner-panel--stdin-collapsed" : "runner-panel"
+      }
       style={
         { "--stdin-height": `${stdinHeightPercent}%` } as CSSProperties
       }
     >
-      <section className="runner-card input-card">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">stdin</span>
-            <h2>Program input</h2>
-          </div>
-          <span className="panel-hint">One value per line</span>
-        </div>
-        <textarea
-          value={stdin}
-          onChange={(event) => onStdinChange(event.target.value)}
-          placeholder={"Ada\n42"}
-          aria-label="Program input"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-        />
-      </section>
-      <ResizeHandle
-        direction="vertical"
-        label="Resize program input and output panels"
-        onPointerDown={(event) =>
-          resize.handlePointerDown(event, stdinHeightPercent)
-        }
-        onPointerMove={resize.handlePointerMove}
-        onPointerUp={resize.handlePointerUp}
-        onPointerCancel={resize.handlePointerCancel}
-      />
+      {!stdinCollapsed && (
+        <>
+          <section className="runner-card input-card">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">stdin</span>
+                <h2>Program input</h2>
+              </div>
+              <div className="panel-actions">
+                <span className="panel-hint">One value per line</span>
+                <button
+                  className="icon-button icon-button--quiet panel-toggle"
+                  type="button"
+                  onClick={onToggleStdin}
+                  aria-label="Close program input panel"
+                  title="Close program input panel"
+                >
+                  <PanelTopClose size={16} />
+                </button>
+              </div>
+            </div>
+            <textarea
+              ref={stdinRef}
+              value={stdin}
+              onChange={(event) => onStdinChange(event.target.value)}
+              placeholder={"Ada\n42"}
+              aria-label="Program input"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </section>
+          <ResizeHandle
+            direction="vertical"
+            label="Resize program input and output panels"
+            value={stdinHeightPercent}
+            min={STDIN_HEIGHT_MIN}
+            max={STDIN_HEIGHT_MAX}
+            step={5}
+            onValueChange={onStdinHeightChange}
+            onValueCommit={persistStdinHeight}
+            onPointerDown={(event) =>
+              resize.handlePointerDown(event, stdinHeightPercent)
+            }
+            onPointerMove={resize.handlePointerMove}
+            onPointerUp={resize.handlePointerUp}
+            onPointerCancel={resize.handlePointerCancel}
+          />
+        </>
+      )}
       <section className="runner-card output-card">
         <div className="panel-heading output-heading">
           <div>
@@ -123,15 +166,28 @@ export function RunnerPanel({
               Output
             </h2>
           </div>
-          <button
-            className="ghost-button ghost-button--small"
-            type="button"
-            onClick={onClear}
-            disabled={status === "running" || output.length === 0}
-          >
-            <Eraser size={14} />
-            Clear
-          </button>
+          <div className="panel-actions">
+            {stdinCollapsed && (
+              <button
+                ref={showInputRef}
+                className="ghost-button ghost-button--small"
+                type="button"
+                onClick={onToggleStdin}
+              >
+                <PanelTopOpen size={14} />
+                Show input
+              </button>
+            )}
+            <button
+              className="ghost-button ghost-button--small"
+              type="button"
+              onClick={onClear}
+              disabled={status === "running" || output.length === 0}
+            >
+              <Eraser size={14} />
+              Clear
+            </button>
+          </div>
         </div>
         <div className="console" aria-live="polite" aria-label="Program output">
           {output.length === 0 ? (

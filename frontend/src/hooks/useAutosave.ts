@@ -20,6 +20,15 @@ function isTerminalClientError(error: unknown): error is ApiError {
   );
 }
 
+function sameContent(left: SessionResource, right: SessionResource): boolean {
+  return (
+    left.name === right.name &&
+    left.code === right.code &&
+    left.tags.length === right.tags.length &&
+    left.tags.every((tag, index) => tag === right.tags[index])
+  );
+}
+
 export function useAutosave(initialSession: SessionResource) {
   const [draft, setDraft] = useState(initialSession);
   const [persisted, setPersisted] = useState(initialSession);
@@ -48,8 +57,7 @@ export function useAutosave(initialSession: SessionResource) {
 
   const isDirty =
     hasUnsettledMutation ||
-    draft.name !== persisted.name ||
-    draft.code !== persisted.code;
+    !sameContent(draft, persisted);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -72,7 +80,7 @@ export function useAutosave(initialSession: SessionResource) {
       pendingMutationRef.current = pending;
       setHasUnsettledMutation(true);
       const { snapshot, expectedRevision, mutationId } = pending;
-      if (snapshot.name === base.name && snapshot.code === base.code) {
+      if (sameContent(snapshot, base)) {
         pendingMutationRef.current = null;
         setHasUnsettledMutation(false);
         if (mountedRef.current) {
@@ -91,6 +99,7 @@ export function useAutosave(initialSession: SessionResource) {
           {
             name: snapshot.name,
             code: snapshot.code,
+            tags: snapshot.tags,
             expected_revision: expectedRevision,
             mutation_id: mutationId,
           },
@@ -103,8 +112,7 @@ export function useAutosave(initialSession: SessionResource) {
         const latestDraft = draftRef.current;
         if (
           response.mutation.superseded &&
-          (response.session.name !== latestDraft.name ||
-            response.session.code !== latestDraft.code)
+          !sameContent(response.session, latestDraft)
         ) {
           setConflict(response.session);
           setStatus("conflict");
@@ -113,10 +121,7 @@ export function useAutosave(initialSession: SessionResource) {
         setPersisted(response.session);
         persistedRef.current = response.session;
         retryIndexRef.current = 0;
-        if (
-          latestDraft.name === snapshot.name &&
-          latestDraft.code === snapshot.code
-        ) {
+        if (sameContent(latestDraft, snapshot)) {
           setDraft(response.session);
           draftRef.current = response.session;
           setStatus("saved");
@@ -135,10 +140,7 @@ export function useAutosave(initialSession: SessionResource) {
           error.body.error.details.session
         ) {
           const server = error.body.error.details.session;
-          if (
-            server.name === draftRef.current.name &&
-            server.code === draftRef.current.code
-          ) {
+          if (sameContent(server, draftRef.current)) {
             pendingMutationRef.current = null;
             setHasUnsettledMutation(false);
             setPersisted(server);
@@ -226,7 +228,15 @@ export function useAutosave(initialSession: SessionResource) {
     return () => {
       clearTimer();
     };
-  }, [clearTimer, draft.code, draft.name, isDirty, saveNow, status]);
+  }, [
+    clearTimer,
+    draft.code,
+    draft.name,
+    draft.tags,
+    isDirty,
+    saveNow,
+    status,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;

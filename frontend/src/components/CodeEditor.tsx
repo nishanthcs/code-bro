@@ -1,15 +1,24 @@
-import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  history,
+  historyKeymap,
+  indentWithTab,
+  insertNewlineAndIndent,
+  temporarilySetTabFocusMode,
+  toggleComment,
+  toggleTabFocusMode,
+} from "@codemirror/commands";
 import { python } from "@codemirror/lang-python";
 import {
   defaultHighlightStyle,
+  foldGutter,
+  foldKeymap,
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
 import { searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import {
   EditorView,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -17,15 +26,21 @@ import {
 } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import { resolveEditorTheme } from "../lib/editorThemes";
+import {
+  initialEditorCursor,
+  persistEditorCursor,
+} from "../lib/preferences";
 import { useTheme } from "./ThemeProvider";
 
 export function CodeEditor({
   value,
+  sessionId,
   onChange,
   onRun,
   resetToken = 0,
 }: {
   value: string;
+  sessionId: string;
   onChange: (value: string) => void;
   onRun: () => void;
   resetToken?: number;
@@ -36,6 +51,7 @@ export function CodeEditor({
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
   const resetTokenRef = useRef(resetToken);
+  const resettingRef = useRef(false);
   const { theme, editorTheme } = useTheme();
 
   useEffect(() => {
@@ -45,15 +61,25 @@ export function CodeEditor({
 
   useEffect(() => {
     if (!rootRef.current) return;
+    const initialCursor = initialEditorCursor(sessionId, value.length);
     const view = new EditorView({
       parent: rootRef.current,
       state: EditorState.create({
         doc: value,
+        selection: EditorSelection.create([
+          EditorSelection.range(
+            initialCursor.anchor,
+            initialCursor.head,
+          ),
+        ]),
         extensions: [
           lineNumbers(),
+          foldGutter({
+            openText: "⌄",
+            closedText: "›",
+          }),
           highlightActiveLineGutter(),
           history(),
-          drawSelection(),
           highlightActiveLine(),
           python(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -62,7 +88,25 @@ export function CodeEditor({
           keymap.of([
             ...historyKeymap,
             ...searchKeymap,
+            ...foldKeymap,
             indentWithTab,
+            {
+              key: "Enter",
+              run: insertNewlineAndIndent,
+            },
+            {
+              key: "Mod-/",
+              run: toggleComment,
+            },
+            {
+              key: "Escape",
+              run: temporarilySetTabFocusMode,
+            },
+            {
+              key: "Ctrl-m",
+              mac: "Shift-Alt-m",
+              run: toggleTabFocusMode,
+            },
             {
               key: "Mod-Enter",
               run: () => {
@@ -81,8 +125,15 @@ export function CodeEditor({
             "data-gramm_editor": "false",
           }),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
+            if (update.docChanged && !resettingRef.current) {
               onChangeRef.current(update.state.doc.toString());
+            }
+            if (update.selectionSet || update.docChanged) {
+              const selection = update.state.selection.main;
+              persistEditorCursor(sessionId, {
+                anchor: selection.anchor,
+                head: selection.head,
+              });
             }
           }),
           themeCompartment.current.of(resolveEditorTheme(editorTheme, theme)),
@@ -105,9 +156,14 @@ export function CodeEditor({
     if (!view) return;
     const current = view.state.doc.toString();
     if (current === value) return;
-    view.dispatch({
-      changes: { from: 0, to: current.length, insert: value },
-    });
+    resettingRef.current = true;
+    try {
+      view.dispatch({
+        changes: { from: 0, to: current.length, insert: value },
+      });
+    } finally {
+      resettingRef.current = false;
+    }
   }, [resetToken, value]);
 
   useEffect(() => {

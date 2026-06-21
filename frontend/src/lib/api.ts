@@ -1,5 +1,6 @@
 import { bootstrap } from "./bootstrap";
 import type {
+  AppSettings,
   ApiErrorBody,
   MutationResponse,
   SessionListResponse,
@@ -74,10 +75,18 @@ export function listSessions(
   query: string,
   cursor?: string | null,
   signal?: AbortSignal,
+  options?: {
+    sort?: "updated_desc" | "updated_asc" | "created_desc" | "name_asc";
+    updatedAfter?: string | null;
+  },
 ): Promise<SessionListResponse> {
   const params = new URLSearchParams({ limit: "50" });
   if (query.trim()) params.set("q", query.trim());
   if (cursor) params.set("cursor", cursor);
+  if (options?.sort) params.set("sort", options.sort);
+  if (options?.updatedAfter) {
+    params.set("updated_after", options.updatedAfter);
+  }
   return request(`/api/v1/sessions?${params.toString()}`, { signal });
 }
 
@@ -86,6 +95,10 @@ export function getSession(
   signal?: AbortSignal,
 ): Promise<SessionResource> {
   return request(`/api/v1/sessions/${id}`, { signal });
+}
+
+export function getAppSettings(signal?: AbortSignal): Promise<AppSettings> {
+  return request("/api/v1/settings", { signal });
 }
 
 export function createSession(
@@ -98,6 +111,7 @@ export function createSession(
     body: JSON.stringify({
       name: "Untitled Session",
       code: 'print("Hello, world!")\n',
+      tags: [],
       mutation_id: mutationId,
     }),
   });
@@ -108,6 +122,7 @@ export function patchSession(
   payload: {
     name?: string;
     code?: string;
+    tags?: string[];
     expected_revision: number;
     mutation_id: string;
   },

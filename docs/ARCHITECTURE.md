@@ -19,7 +19,8 @@ manual stop, timeout, or output overflow.
 SQLite contains:
 
 - `sessions`: names, normalized search names, code, persisted code previews,
-  revision, timestamps, and soft-deletion state.
+  normalized tags, tag-search text, revision, timestamps, and soft-deletion
+  state.
 - `mutations`: durable idempotency receipts used to distinguish a lost HTTP
   response from a genuine concurrent edit.
 
@@ -28,11 +29,20 @@ revision checks so retries remain idempotent even if another tab saved a newer
 revision. Receipts are retained indefinitely because deleting one would allow a
 delayed retry to apply as a new mutation.
 
+Session listing is server-backed and cursor-paginated. Name-or-tag search, sort
+selection, and updated-date thresholds are applied in SQLite so the dashboard
+remains correct beyond the first loaded page.
+
+The token-protected settings endpoint exposes only the resolved SQLite database
+path. The dashboard presents this value read-only and provides no settings
+mutation API.
+
 Schema changes run as ordered migrations inside one explicit write
 transaction. The application refuses to open a database with a schema version
 newer than it supports. Schema version 2 adds and backfills `code_preview`;
 create and code-patch mutations maintain it so session lists do not read full
-source text.
+source text. Schema version 3 adds JSON tag storage and normalized tag-search
+text.
 
 ## Controller startup
 
@@ -51,15 +61,17 @@ traversal segments and symlinks that resolve outside the distribution.
 ## Editor
 
 CodeMirror 6 uses the Python language package, syntax highlighting, line
-numbers, history, search, indentation, Python-aware folding, and line-comment
-commands. Native selection rendering is used so each editor theme controls both
-selection foreground and background contrast. The implementation does not
-enable completion, lint, snippet, automatic-import, or close-bracket
-extensions.
+numbers, history, search, language-aware newline indentation, Python-aware
+folding, and line-comment commands. Native selection rendering is used so each
+editor theme controls both selection foreground and background contrast. The
+implementation does not enable completion, lint, snippet, automatic-import, or
+close-bracket extensions.
 
-The playground installs page-level `Cmd/Ctrl+S` handling so saving works while
-focus is in either the editor or session-name input. CodeMirror handles
-`Cmd/Ctrl+/` for the current line or selected lines.
+The playground installs page-level `Cmd/Ctrl+S` and `Cmd/Ctrl+Enter` handling
+so save and run work outside the editor. `F2` focuses the session name and
+`Ctrl+Shift+T` focuses the tag editor. CodeMirror handles `Cmd/Ctrl+/` for the
+current line or selected lines. `Escape`, then `Tab`, temporarily disables
+CodeMirror's Tab indentation binding so keyboard users can leave the editor.
 
 ## Availability feedback
 
@@ -69,12 +81,14 @@ alert explains that sessions cannot load or save and provides a retry action.
 
 ## Runner layout
 
-The editor/runner split and stdin/console split are resizable. Closing stdin
-removes its resize handle and gives the console the full runner height; a
-`Show input` action restores the panel without discarding its text.
+The editor/runner split and stdin/console split are resizable with pointers or
+keyboard-accessible separators. Closing stdin removes its resize handle and
+gives the console the full runner height; a `Show input` action restores the
+panel without discarding its text. Split sizes, stdin visibility, and
+per-session cursor selections are UI-only preferences stored in localStorage.
 
 ## Themes
 
 The UI ships polished light and dark themes. The initial value follows the
 operating system and the user choice is stored as a UI-only local preference.
-Session source code is never persisted in browser storage.
+Session source code, names, and tags are never persisted in browser storage.

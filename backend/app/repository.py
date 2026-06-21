@@ -55,6 +55,33 @@ def normalize_name(name: str) -> tuple[str, str]:
     return normalized, normalized.casefold()
 
 
+def normalize_tags(tags: list[str]) -> tuple[list[str], str]:
+    normalized_tags: list[str] = []
+    seen: set[str] = set()
+    for value in tags:
+        normalized = unicodedata.normalize("NFKC", value.strip())
+        if not normalized:
+            continue
+        if len(normalized) > 32:
+            raise ValueError("Tags must be 32 characters or fewer")
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_tags.append(normalized)
+    if len(normalized_tags) > 10:
+        raise ValueError("A session can have at most 10 tags")
+    return normalized_tags, "\n".join(tag.casefold() for tag in normalized_tags)
+
+
+def row_tags(row: sqlite3.Row) -> list[str]:
+    try:
+        value = json.loads(row["tags_json"])
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [str(tag) for tag in value] if isinstance(value, list) else []
+
+
 def canonical_hash(operation: str, payload: dict[str, Any]) -> str:
     body = json.dumps(
         {"operation": operation, **payload},
@@ -65,18 +92,33 @@ def canonical_hash(operation: str, payload: dict[str, Any]) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-def encode_cursor(updated_at: str, session_id: str) -> str:
-    raw = json.dumps([updated_at, session_id], separators=(",", ":")).encode()
+SESSION_SORTS = {
+    "updated_desc": ("updated_at", "DESC", "<"),
+    "updated_asc": ("updated_at", "ASC", ">"),
+    "created_desc": ("created_at", "DESC", "<"),
+    "name_asc": ("name_search", "ASC", ">"),
+}
+
+
+def encode_cursor(sort: str, sort_value: str, session_id: str) -> str:
+    raw = json.dumps(
+        [sort, sort_value, session_id],
+        separators=(",", ":"),
+    ).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def decode_cursor(cursor: str) -> tuple[str, str]:
+def decode_cursor(cursor: str, expected_sort: str) -> tuple[str, str]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         value = json.loads(base64.urlsafe_b64decode(padded).decode())
-        if not isinstance(value, list) or len(value) != 2:
+        if (
+            not isinstance(value, list)
+            or len(value) != 3
+            or value[0] != expected_sort
+        ):
             raise ValueError
-        return str(value[0]), str(value[1])
+        return str(value[1]), str(value[2])
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as error:
         raise ValueError("Invalid cursor") from error
 
@@ -86,6 +128,7 @@ def row_to_session(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "name": row["name"],
         "code": row["code"],
+        "tags": row_tags(row),
         "revision": row["revision"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -97,29 +140,48 @@ class SessionRepository:
         self.database = database
 
     def list_sessions(
-        self, query: str, limit: int, cursor: str | None
+        self,
+        query: str,
+        limit: int,
+        cursor: str | None,
+        *,
+        sort: str = "updated_desc",
+        updated_after: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
+        if sort not in SESSION_SORTS:
+            raise ValueError("Invalid session sort")
+        sort_column, sort_direction, cursor_operator = SESSION_SORTS[sort]
         normalized_query = unicodedata.normalize("NFKC", query.strip()).casefold()
         params: list[Any] = []
         where = ["deleted_at IS NULL"]
         if normalized_query:
-            where.append("name_search LIKE ? ESCAPE '\\'")
+            where.append(
+                "(name_search LIKE ? ESCAPE '\\' "
+                "OR tags_search LIKE ? ESCAPE '\\')"
+            )
             escaped = (
                 normalized_query.replace("\\", "\\\\")
                 .replace("%", "\\%")
                 .replace("_", "\\_")
             )
-            params.append(f"%{escaped}%")
+            params.extend([f"%{escaped}%", f"%{escaped}%"])
+        if updated_after:
+            where.append("updated_at >= ?")
+            params.append(updated_after)
         if cursor:
-            updated_at, session_id = decode_cursor(cursor)
-            where.append("(updated_at < ? OR (updated_at = ? AND id > ?))")
-            params.extend([updated_at, updated_at, session_id])
+            sort_value, session_id = decode_cursor(cursor, sort)
+            where.append(
+                f"({sort_column} {cursor_operator} ? "
+                f"OR ({sort_column} = ? AND id > ?))"
+            )
+            params.extend([sort_value, sort_value, session_id])
         params.append(limit + 1)
         sql = f"""
-            SELECT id, name, code_preview, revision, created_at, updated_at
+            SELECT id, name, name_search, code_preview, tags_json, revision,
+                   created_at, updated_at
             FROM sessions
             WHERE {' AND '.join(where)}
-            ORDER BY updated_at DESC, id ASC
+            ORDER BY {sort_column} {sort_direction}, id ASC
             LIMIT ?
         """
         with self.database.connect() as connection:
@@ -131,6 +193,7 @@ class SessionRepository:
                 "id": row["id"],
                 "name": row["name"],
                 "code_preview": row["code_preview"],
+                "tags": row_tags(row),
                 "revision": row["revision"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
@@ -138,7 +201,7 @@ class SessionRepository:
             for row in rows
         ]
         next_cursor = (
-            encode_cursor(rows[-1]["updated_at"], rows[-1]["id"])
+            encode_cursor(sort, rows[-1][sort_column], rows[-1]["id"])
             if has_more and rows
             else None
         )
@@ -148,7 +211,8 @@ class SessionRepository:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, name, code, revision, created_at, updated_at
+                SELECT id, name, code, tags_json, revision,
+                       created_at, updated_at
                 FROM sessions
                 WHERE id = ? AND deleted_at IS NULL
                 """,
@@ -159,12 +223,22 @@ class SessionRepository:
         return row_to_session(row)
 
     def create_session(
-        self, name: str, code: str, mutation_id: str
+        self,
+        name: str,
+        code: str,
+        mutation_id: str,
+        tags: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         clean_name, name_search = normalize_name(name)
-        request_hash = canonical_hash(
-            "create", {"name": clean_name, "code": code, "mutation_id": mutation_id}
-        )
+        clean_tags, tags_search = normalize_tags(tags or [])
+        hash_payload: dict[str, Any] = {
+            "name": clean_name,
+            "code": code,
+            "mutation_id": mutation_id,
+        }
+        if clean_tags:
+            hash_payload["tags"] = clean_tags
+        request_hash = canonical_hash("create", hash_payload)
         with self.database.transaction() as connection:
             duplicate = self._duplicate_receipt(
                 connection, mutation_id, request_hash, "create"
@@ -176,9 +250,9 @@ class SessionRepository:
             connection.execute(
                 """
                 INSERT INTO sessions(
-                    id, name, name_search, code, code_preview, revision,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    id, name, name_search, code, code_preview, tags_json,
+                    tags_search, revision, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     session_id,
@@ -186,6 +260,8 @@ class SessionRepository:
                     name_search,
                     code,
                     code_preview(code),
+                    json.dumps(clean_tags, ensure_ascii=False),
+                    tags_search,
                     now,
                     now,
                 ),
@@ -212,20 +288,24 @@ class SessionRepository:
         code: str | None,
         expected_revision: int,
         mutation_id: str,
+        tags: list[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         clean_name = name_search = None
         if name is not None:
             clean_name, name_search = normalize_name(name)
-        request_hash = canonical_hash(
-            "patch",
-            {
-                "session_id": session_id,
-                "name": clean_name,
-                "code": code,
-                "expected_revision": expected_revision,
-                "mutation_id": mutation_id,
-            },
-        )
+        clean_tags = tags_search = None
+        if tags is not None:
+            clean_tags, tags_search = normalize_tags(tags)
+        hash_payload = {
+            "session_id": session_id,
+            "name": clean_name,
+            "code": code,
+            "expected_revision": expected_revision,
+            "mutation_id": mutation_id,
+        }
+        if tags is not None:
+            hash_payload["tags"] = clean_tags
+        request_hash = canonical_hash("patch", hash_payload)
         with self.database.transaction() as connection:
             duplicate = self._duplicate_receipt(
                 connection, mutation_id, request_hash, "patch"
@@ -247,12 +327,16 @@ class SessionRepository:
             next_code_preview = (
                 code_preview(code) if code is not None else row["code_preview"]
             )
+            next_tags = clean_tags if clean_tags is not None else row_tags(row)
+            next_tags_search = (
+                tags_search if tags_search is not None else row["tags_search"]
+            )
             now = utc_now()
             connection.execute(
                 """
                 UPDATE sessions
                 SET name = ?, name_search = ?, code = ?, code_preview = ?,
-                    revision = ?, updated_at = ?
+                    tags_json = ?, tags_search = ?, revision = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -260,6 +344,8 @@ class SessionRepository:
                     next_search,
                     next_code,
                     next_code_preview,
+                    json.dumps(next_tags, ensure_ascii=False),
+                    next_tags_search,
                     next_revision,
                     now,
                     session_id,
@@ -333,8 +419,8 @@ class SessionRepository:
         deleted_clause = "" if include_deleted else "AND deleted_at IS NULL"
         row = connection.execute(
             f"""
-            SELECT id, name, name_search, code, code_preview, revision,
-                   created_at, updated_at, deleted_at
+            SELECT id, name, name_search, code, code_preview, tags_json,
+                   tags_search, revision, created_at, updated_at, deleted_at
             FROM sessions
             WHERE id = ? {deleted_clause}
             """,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings
 from .database import Database
 from .models import (
+    AppSettingsResponse,
     CreateSessionRequest,
     DeleteSessionRequest,
     MutationResponse,
@@ -130,14 +132,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/api/v1/settings", response_model=AppSettingsResponse)
+    async def app_settings() -> AppSettingsResponse:
+        return AppSettingsResponse(data_path=str(settings.database_path.resolve()))
+
     @app.get("/api/v1/sessions", response_model=SessionListResponse)
     async def list_sessions(
         q: str = "",
         limit: int = Query(default=50, ge=1, le=100),
         cursor: str | None = None,
+        sort: str = Query(
+            default="updated_desc",
+            pattern="^(updated_desc|updated_asc|created_desc|name_asc)$",
+        ),
+        updated_after: datetime | None = None,
     ) -> SessionListResponse:
         try:
-            items, next_cursor = repository.list_sessions(q, limit, cursor)
+            normalized_updated_after = None
+            if updated_after is not None:
+                if updated_after.tzinfo is None:
+                    updated_after = updated_after.replace(tzinfo=UTC)
+                normalized_updated_after = (
+                    updated_after.astimezone(UTC)
+                    .isoformat(timespec="milliseconds")
+                    .replace("+00:00", "Z")
+                )
+            items, next_cursor = repository.list_sessions(
+                q,
+                limit,
+                cursor,
+                sort=sort,
+                updated_after=normalized_updated_after,
+            )
         except ValueError as error:
             return error_response("invalid_cursor", str(error), 422)
         return SessionListResponse(items=items, next_cursor=next_cursor)
@@ -149,7 +175,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def create_session(payload: CreateSessionRequest) -> MutationResponse:
         session, mutation = repository.create_session(
-            payload.name, payload.code, payload.mutation_id
+            payload.name,
+            payload.code,
+            payload.mutation_id,
+            payload.tags,
         )
         response = MutationResponse(session=session, mutation=mutation)
         if mutation["duplicate"]:
@@ -171,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session_id,
             name=payload.name,
             code=payload.code,
+            tags=payload.tags,
             expected_revision=payload.expected_revision,
             mutation_id=payload.mutation_id,
         )
