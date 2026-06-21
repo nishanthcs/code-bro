@@ -24,3 +24,4 @@ artifacts/
 *.sqlite3-wal
 build/
 release/
+.aider*
