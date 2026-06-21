@@ -797,6 +797,9 @@ kbd {
   border-radius: 10px;
   background: var(--surface-solid);
   box-shadow: var(--shadow-sm);
+  /* Ensure dropdown is not clipped by overflow-x: auto container */
+  width: fit-content;
+  min-width: 100%;
 }
 
 .tag-suggestion-item {
