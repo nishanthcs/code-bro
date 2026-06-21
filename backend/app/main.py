@@ -215,6 +215,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return Response(status_code=204)
 
+    @app.get("/api/v1/tags/suggestions")
+    async def get_tag_suggestions() -> list[str]:
+        return repository.get_unique_tags()
+
     if settings.frontend_dist and settings.frontend_dist.exists():
         frontend_root = settings.frontend_dist.resolve()
         index_path = (frontend_root / "index.html").resolve()

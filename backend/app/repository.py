@@ -470,6 +470,31 @@ class SessionRepository:
             superseded,
         )
 
+    def get_unique_tags(self) -> list[str]:
+        unique_tags: set[str] = set()
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT tags_json
+                FROM sessions
+                WHERE deleted_at IS NULL
+                """
+            ).fetchall()
+            for row in rows:
+                tags_json = row["tags_json"]
+                if not tags_json:
+                    continue
+                try:
+                    tags = json.loads(tags_json)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(tags, list):
+                    continue
+                for tag in tags:
+                    if isinstance(tag, str) and tag.strip():
+                        unique_tags.add(tag)
+        return sorted(unique_tags)
+
     @staticmethod
     def _mutation_meta(
         mutation_id: str,

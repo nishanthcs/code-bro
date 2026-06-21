@@ -785,6 +785,50 @@ kbd {
   white-space: nowrap;
 }
 
+.tag-suggestions {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.tag-suggestion-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tag-suggestion-item:hover,
+.tag-suggestion-item.active {
+  background: var(--surface-hover);
+  color: var(--primary);
+}
+
+.tag-suggestion-item:first-child {
+  border-radius: 10px 10px 0 0;
+}
+
+.tag-suggestion-item:last-child {
+  border-radius: 0 0 10px 10px;
+}
+
+.tag-suggestion-item:only-child {
+  border-radius: 10px;
+}
+
 .language-pill {
   display: inline-flex;
   align-items: center;

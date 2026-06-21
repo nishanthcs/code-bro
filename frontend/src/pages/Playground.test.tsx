@@ -198,7 +198,7 @@ describe("Playground session loading", () => {
       shiftKey: true,
     });
     expect(
-      screen.getByRole("textbox", { name: "Add session tag" }),
+      screen.getByRole("combobox", { name: "Add session tag" }),
     ).toHaveFocus();
   });
 
