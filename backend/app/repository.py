@@ -471,7 +471,7 @@ class SessionRepository:
         )
 
     def get_unique_tags(self) -> list[str]:
-        unique_tags: set[str] = set()
+        unique_tags: dict[str, str] = {}  # normalized_tag -> original_spelling
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
@@ -492,8 +492,12 @@ class SessionRepository:
                     continue
                 for tag in tags:
                     if isinstance(tag, str) and tag.strip():
-                        unique_tags.add(tag)
-        return sorted(unique_tags)
+                        # Use NFKC + casefold() for deduplication while preserving display spelling
+                        normalized_tag = unicodedata.normalize("NFKC", tag).casefold()
+                        if normalized_tag not in unique_tags:
+                            unique_tags[normalized_tag] = tag
+        # Return sorted list with original display spelling (using first occurrence)
+        return sorted(unique_tags.values(), key=lambda x: x.casefold())
 
     @staticmethod
     def _mutation_meta(

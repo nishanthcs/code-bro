@@ -43,6 +43,26 @@ export function SessionTagEditor({
     return () => controller.abort();
   }, []);
 
+  // Recompute suggestions when allTags or value changes
+  useEffect(() => {
+    if (value.length >= 1) {
+      const lower = value.toLocaleLowerCase();
+      const filtered = allTags.filter(
+        (tag) =>
+          tag.toLocaleLowerCase().includes(lower) &&
+          !tags.some(
+            (t) => t.toLocaleLowerCase() === tag.toLocaleLowerCase(),
+          ),
+      );
+      setSuggestions(filtered.slice(0, 10));
+      setShowSuggestions(filtered.length > 0);
+      setActiveSuggestionIndex(0);
+    } else {
+      setShowSuggestions(false);
+      setSuggestions([]);
+    }
+  }, [value, allTags, tags]);
+
   const commit = useCallback(
     (input: string) => {
       const candidates = input.split(",");
@@ -78,22 +98,6 @@ export function SessionTagEditor({
   const handleInputChange = (input: string) => {
     setValue(input);
     setError("");
-    if (input.length >= 1) {
-      const lower = input.toLocaleLowerCase();
-      const filtered = allTags.filter(
-        (tag) =>
-          tag.toLocaleLowerCase().includes(lower) &&
-          !tags.some(
-            (t) => t.toLocaleLowerCase() === tag.toLocaleLowerCase(),
-          ),
-      );
-      setSuggestions(filtered.slice(0, 10));
-      setShowSuggestions(filtered.length > 0);
-      setActiveSuggestionIndex(0);
-    } else {
-      setShowSuggestions(false);
-      setSuggestions([]);
-    }
   };
 
   const selectSuggestion = (tag: string) => {
@@ -116,7 +120,7 @@ export function SessionTagEditor({
         return;
       }
       if (
-        (event.key === "Enter" || event.key === "Tab") &&
+        event.key === "Enter" &&
         activeSuggestionIndex >= 0 &&
         activeSuggestionIndex < suggestions.length
       ) {
@@ -137,6 +141,11 @@ export function SessionTagEditor({
     if (event.key === "Backspace" && !value && tags.length > 0) {
       onChange(tags.slice(0, -1));
       setError("");
+    }
+    // Allow Tab to naturally advance focus without preventing default
+    if (event.key === "Tab" && showSuggestions && suggestions.length > 0) {
+      // Don't prevent default for Tab key when suggestions are active to preserve tab navigation
+      return;
     }
   };
 
