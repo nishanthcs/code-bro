@@ -40,8 +40,8 @@ light/dark themes.
 - The stdin panel can be closed so the console occupies the full runner column.
 - Editor/runner sizing, stdin sizing and visibility, and each session's cursor
   selection are restored from browser-local preferences.
-- The UI continuously checks the local API and shows a recovery banner if the
-  server becomes unavailable.
+- The UI detects failed API requests, shows a recovery banner, and periodically
+  retries only while the local server is unavailable.
 
 ## Repository layout
 

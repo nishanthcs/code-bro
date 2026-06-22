@@ -1,4 +1,8 @@
 import { bootstrap } from "./bootstrap";
+import {
+  reportServerAvailable,
+  reportServerUnavailable,
+} from "./serverHealthEvents";
 import type {
   AppSettings,
   ApiErrorBody,
@@ -47,6 +51,7 @@ async function request<T>(
         ...init.headers,
       },
     });
+    reportServerAvailable();
     if (!response.ok) {
       let body: ApiErrorBody;
       try {
@@ -66,6 +71,13 @@ async function request<T>(
       return undefined as T;
     }
     return (await response.json()) as T;
+  } catch (error) {
+    // Caller-driven cancellation is normal during navigation and must not
+    // report the persistence server as unavailable.
+    if (!init.signal?.aborted) {
+      reportServerUnavailable();
+    }
+    throw error;
   } finally {
     globalThis.clearTimeout(timeout);
   }

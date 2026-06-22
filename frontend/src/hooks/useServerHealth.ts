@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { checkHealth } from "../lib/api";
+import {
+  SERVER_AVAILABLE_EVENT,
+  SERVER_UNAVAILABLE_EVENT,
+} from "../lib/serverHealthEvents";
 
 export type ServerHealth = "checking" | "online" | "offline";
 
-const HEALTH_INTERVAL_MS = 5_000;
+const OFFLINE_RETRY_INTERVAL_MS = 30_000;
 
 export function useServerHealth() {
   const [health, setHealth] = useState<ServerHealth>("checking");
+  const healthRef = useRef<ServerHealth>("checking");
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
+
+  const updateHealth = useCallback((nextHealth: ServerHealth) => {
+    healthRef.current = nextHealth;
+    setHealth(nextHealth);
+  }, []);
 
   const check = useCallback(async () => {
     const generation = generationRef.current + 1;
@@ -20,7 +30,7 @@ export function useServerHealth() {
     try {
       await checkHealth(controller.signal);
       if (mountedRef.current && generationRef.current === generation) {
-        setHealth("online");
+        updateHealth("online");
       }
     } catch {
       if (
@@ -28,32 +38,46 @@ export function useServerHealth() {
         generationRef.current === generation &&
         !controller.signal.aborted
       ) {
-        setHealth("offline");
+        updateHealth("offline");
       }
     } finally {
       if (controllerRef.current === controller) {
         controllerRef.current = null;
       }
     }
-  }, []);
+  }, [updateHealth]);
 
   useEffect(() => {
     mountedRef.current = true;
     queueMicrotask(() => void check());
-    const interval = window.setInterval(() => void check(), HEALTH_INTERVAL_MS);
-    const handleFocus = () => void check();
-    const handleOnline = () => void check();
-    window.addEventListener("focus", handleFocus);
-    window.addEventListener("online", handleOnline);
+    const handleAvailable = () => updateHealth("online");
+    const handleUnavailable = () => updateHealth("offline");
+    const checkIfOffline = () => {
+      if (healthRef.current === "offline") void check();
+    };
+    window.addEventListener(SERVER_AVAILABLE_EVENT, handleAvailable);
+    window.addEventListener(SERVER_UNAVAILABLE_EVENT, handleUnavailable);
+    window.addEventListener("focus", checkIfOffline);
+    window.addEventListener("online", checkIfOffline);
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
       controllerRef.current?.abort();
-      window.clearInterval(interval);
-      window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("online", handleOnline);
+      window.removeEventListener(SERVER_AVAILABLE_EVENT, handleAvailable);
+      window.removeEventListener(SERVER_UNAVAILABLE_EVENT, handleUnavailable);
+      window.removeEventListener("focus", checkIfOffline);
+      window.removeEventListener("online", checkIfOffline);
     };
-  }, [check]);
+  }, [check, updateHealth]);
+
+  useEffect(() => {
+    if (health !== "offline") return;
+    const interval = window.setInterval(
+      () => void check(),
+      OFFLINE_RETRY_INTERVAL_MS,
+    );
+    return () => window.clearInterval(interval);
+  }, [check, health]);
 
   return { health, check };
 }

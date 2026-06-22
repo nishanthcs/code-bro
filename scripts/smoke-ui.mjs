@@ -259,10 +259,10 @@ try {
   await sessionSearch.fill("browser");
   await page.getByText("Keyboard Smoke").first().waitFor();
 
-  await page.route("**/api/v1/health", (route) => route.abort());
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.route("**/api/v1/sessions?*", (route) => route.abort());
+  await sessionSearch.fill("offline-check");
   await page.getByText("CodeBro server is unavailable").waitFor();
-  await page.unroute("**/api/v1/health");
+  await page.unroute("**/api/v1/sessions?*");
   await page.getByRole("button", { name: "Retry" }).click();
   await page.getByText("CodeBro server is unavailable").waitFor({
     state: "detached",
