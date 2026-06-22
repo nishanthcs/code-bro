@@ -796,7 +796,7 @@ export function SessionLibrary() {
                 </article>
               ))}
             </div>
-          )}
+          </>)}
           <div ref={sentinelRef} className="pagination-sentinel">
             {cursor ? "Loading more…" : sessions.length ? "You’re all caught up." : ""}
           </div>
