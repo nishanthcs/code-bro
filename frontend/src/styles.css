@@ -374,15 +374,34 @@ kbd {
 
 .session-list-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px 150px 56px;
-  gap: 0;
-  padding: 11px 0 11px 18px;
+  grid-template-columns: 40px minmax(0, 1fr) 180px 150px 60px;
+  align-items: center;
+  padding: 8px 0;
   border-bottom: 1px solid var(--border);
-  color: var(--text-tertiary);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
+}
+
+.bulk-actions-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.bulk-actions-toolbar button {
+  margin-left: auto;
+}
+
+/* Fix for session row checkbox click conflicts */
+.session-row input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .session-row {

@@ -10,6 +10,8 @@ import {
   Search,
   Settings2,
   Trash2,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -107,6 +109,7 @@ export function SessionLibrary() {
   const [settingsPath, setSettingsPath] = useState("");
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const sentinelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const generationRef = useRef(0);
@@ -304,6 +307,39 @@ export function SessionLibrary() {
     }
   }, [creating, navigate]);
 
+  const toggleSessionSelection = useCallback((id: string) => {
+    setSelectedSessionIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const selectAllSessions = useCallback(() => {
+    const allIds = new Set(sessions.map(session => session.id));
+    setSelectedSessionIds(allIds);
+  }, [sessions]);
+
+  const deselectAllSessions = useCallback(() => {
+    setSelectedSessionIds(new Set());
+  }, []);
+
+  const isAllSelected = useMemo(() => {
+    return sessions.length > 0 && selectedSessionIds.size === sessions.length;
+  }, [sessions, selectedSessionIds]);
+
+  const toggleSelectAll = useCallback(() => {
+    if (isAllSelected) {
+      deselectAllSessions();
+    } else {
+      selectAllSessions();
+    }
+  }, [isAllSelected, selectAllSessions, deselectAllSessions]);
+
   useEffect(() => {
     const handleDashboardShortcut = (event: KeyboardEvent) => {
       if (
@@ -452,6 +488,49 @@ export function SessionLibrary() {
     }
   };
 
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedSessionIds.size === 0) return;
+    
+    // Show confirmation for bulk deletion like in individual delete
+    const confirmText = `Are you sure you want to delete ${selectedSessionIds.size} session(s)?`;
+    if (!confirm(confirmText)) return;
+
+    let successCount = 0;
+    let errorCount = 0;
+    
+    // Delete sessions one by one since the backend doesn't support batch delete yet
+    for (const sessionId of selectedSessionIds) {
+      try {
+        const session = sessions.find(s => s.id === sessionId);
+        if (session) {
+          // Find the most recent revision to use in deletion
+          await deleteSession(
+            sessionId,
+            session.revision,
+            crypto.randomUUID(),
+            undefined,  // no signal needed here as we don't cancel during bulk delete
+          );
+          successCount++;
+        }
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to delete session ${sessionId}:`, error);
+      }
+    }
+
+    // Update the UI - remove deleted sessions from list
+    if (successCount > 0) {
+      setSessions(prev => prev.filter(session => !selectedSessionIds.has(session.id)));
+    }
+
+    if (errorCount > 0) {
+      setError(`Some sessions could not be deleted. ${errorCount} failed.`);
+    }
+    
+    // Clear selections
+    setSelectedSessionIds(new Set());
+  }, [selectedSessionIds, sessions]);
+
   return (
     <AppShell
       actions={
@@ -567,8 +646,36 @@ export function SessionLibrary() {
               </button>
             </div>
           ) : (
-            <div className="session-list" role="table" aria-label="Sessions">
+            <>
+              {selectedSessionIds.size > 0 && (
+                <div className="bulk-actions-toolbar">
+                  <span>{selectedSessionIds.size} session(s) selected</span>
+                  <button 
+                    type="button" 
+                    className="danger-button"
+                    onClick={handleBulkDelete}
+                  >
+                    Delete Selected
+                  </button>
+                  <button 
+                    type="button" 
+                    className="secondary-button"
+                    onClick={deselectAllSessions}
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              )}
+              <div className="session-list" role="table" aria-label="Sessions">
               <div className="session-list-header" role="row">
+                <span role="columnheader">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={toggleSelectAll}
+                    aria-label={isAllSelected ? "Deselect all sessions" : "Select all sessions"}
+                  />
+                </span>
                 <span role="columnheader">Session</span>
                 <span role="columnheader">Updated</span>
                 <span role="columnheader">Created</span>
@@ -637,6 +744,15 @@ export function SessionLibrary() {
                     )}
                   </div>
                   <div className="card-menu">
+                    <input
+                      type="checkbox"
+                      checked={selectedSessionIds.has(session.id)}
+                      onChange={() => toggleSessionSelection(session.id)}
+                      aria-label={`Select session ${session.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent triggering row click when clicking checkbox
+                      }}
+                    />
                     <button
                       ref={(node) => {
                         if (node) {
@@ -648,11 +764,12 @@ export function SessionLibrary() {
                       className="icon-button icon-button--quiet"
                       type="button"
                       aria-label={`Actions for ${session.name}`}
-                      onClick={() =>
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent triggering row click when clicking menu
                         setMenuId((current) =>
                           current === session.id ? null : session.id,
                         )
-                      }
+                      }}
                     >
                       <MoreHorizontal size={18} />
                     </button>
@@ -665,7 +782,10 @@ export function SessionLibrary() {
                         <button
                           className="danger-action"
                           type="button"
-                          onClick={() => openDelete(session)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDelete(session);
+                          }}
                         >
                           <Trash2 size={14} />
                           Delete
