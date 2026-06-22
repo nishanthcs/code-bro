@@ -54,11 +54,22 @@ Prerequisites:
 
 - Node.js 24.16.0 (exactly; use `.node-version` or `.nvmrc`)
 - Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/pip install -c backend/constraints.txt -e './backend[dev]'
+uv venv .venv --python 3.12
+uv pip install --python .venv/bin/python \
+  -c backend/constraints.txt \
+  -e './backend[dev,package]'
 npm ci
+```
+
+This installs the backend runtime, test, development, and macOS packaging
+dependencies into `.venv`.
+
+Start the full development environment from the repository root:
+
+```bash
 npm run dev
 ```
 
@@ -67,6 +78,20 @@ Open `http://127.0.0.1:5173`. The development controller starts:
 - Vite UI: `127.0.0.1:5173`
 - FastAPI persistence API: `127.0.0.1:8765`
 - Isolated execution origin: `127.0.0.1:8766`
+
+To run only the FastAPI persistence backend:
+
+```bash
+CODEBRO_DATA_DIR="$PWD/.local-data" \
+  .venv/bin/python -m uvicorn app.main:app \
+  --app-dir backend \
+  --host 127.0.0.1 \
+  --port 8765
+```
+
+The standalone backend uses the development API token `dev-token`. Its strict
+Host validation expects requests to arrive through the Vite development proxy
+at `http://127.0.0.1:5173`.
 
 ## Verification
 
@@ -88,10 +113,10 @@ npm run smoke:ui
 
 ## macOS package
 
-Install the packaging extra, then build the application and DMG:
+If you installed the `package` extra during development setup, build the
+application and DMG with:
 
 ```bash
-.venv/bin/pip install -c backend/constraints.txt -e './backend[package]'
 scripts/package-macos.sh
 ```
 
