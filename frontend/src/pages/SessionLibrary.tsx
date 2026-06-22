@@ -10,8 +10,6 @@ import {
   Search,
   Settings2,
   Trash2,
-  CheckSquare,
-  Square,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -109,7 +107,10 @@ export function SessionLibrary() {
   const [settingsPath, setSettingsPath] = useState("");
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState("");
-  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const generationRef = useRef(0);
@@ -121,6 +122,7 @@ export function SessionLibrary() {
   const renameMutationIdsRef = useRef(new Map<string, string>());
   const deleteMutationIdsRef = useRef(new Map<string, string>());
   const deleteControllerRef = useRef<AbortController | null>(null);
+  const bulkDeleteControllersRef = useRef(new Set<AbortController>());
   const settingsControllerRef = useRef<AbortController | null>(null);
   const actionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -212,6 +214,7 @@ export function SessionLibrary() {
       listControllersRef.current.clear();
       requestedCursorsRef.current.clear();
       setSessions([]);
+      setSelectedSessionIds(new Set());
       setCursor(null);
       setLoading(true);
       void load(nextQuery, null, generation, sort, updatedAfter);
@@ -239,6 +242,7 @@ export function SessionLibrary() {
     queueMicrotask(() => {
       if (generation !== generationRef.current) return;
       setSessions([]);
+      setSelectedSessionIds(new Set());
       setCursor(null);
       setLoading(true);
     });
@@ -250,12 +254,16 @@ export function SessionLibrary() {
 
   useEffect(() => {
     const listControllers = listControllersRef.current;
+    const bulkDeleteControllers = bulkDeleteControllersRef.current;
     return () => {
       generationRef.current += 1;
       for (const controller of listControllers) controller.abort();
       createControllerRef.current?.abort();
       renameControllerRef.current?.abort();
       deleteControllerRef.current?.abort();
+      for (const controller of bulkDeleteControllers) {
+        controller.abort();
+      }
       settingsControllerRef.current?.abort();
     };
   }, []);
@@ -308,19 +316,19 @@ export function SessionLibrary() {
   }, [creating, navigate]);
 
   const toggleSessionSelection = useCallback((id: string) => {
-    setSelectedSessionIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
+    setSelectedSessionIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
       } else {
-        newSet.add(id);
+        next.add(id);
       }
-      return newSet;
+      return next;
     });
   }, []);
 
   const selectAllSessions = useCallback(() => {
-    const allIds = new Set(sessions.map(session => session.id));
+    const allIds = new Set(sessions.map((session) => session.id));
     setSelectedSessionIds(allIds);
   }, [sessions]);
 
@@ -329,7 +337,10 @@ export function SessionLibrary() {
   }, []);
 
   const isAllSelected = useMemo(() => {
-    return selectedSessionIds.size > 0 && selectedSessionIds.size === sessions.length;
+    return (
+      sessions.length > 0 &&
+      sessions.every((session) => selectedSessionIds.has(session.id))
+    );
   }, [sessions, selectedSessionIds]);
 
   const toggleSelectAll = useCallback(() => {
@@ -489,47 +500,68 @@ export function SessionLibrary() {
   };
 
   const handleBulkDelete = useCallback(async () => {
-    if (selectedSessionIds.size === 0) return;
-    
-    // Show confirmation for bulk deletion like in individual delete
-    const confirmText = `Are you sure you want to delete ${selectedSessionIds.size} session(s)?`;
-    if (!confirm(confirmText)) return;
+    if (selectedSessionIds.size === 0 || bulkDeleting) return;
+    const selectedSessions = sessions.filter((session) =>
+      selectedSessionIds.has(session.id),
+    );
+    if (selectedSessions.length === 0) {
+      setSelectedSessionIds(new Set());
+      return;
+    }
+    if (
+      !window.confirm(
+        `Are you sure you want to delete ${selectedSessions.length} session(s)?`,
+      )
+    ) {
+      return;
+    }
 
-    let successCount = 0;
+    setBulkDeleting(true);
+    const deletedIds = new Set<string>();
     let errorCount = 0;
-    
-    // Delete sessions one by one since the backend doesn't support batch delete yet
-    for (const sessionId of selectedSessionIds) {
-      try {
-        const session = sessions.find(s => s.id === sessionId);
-        if (session) {
-          // Find the most recent revision to use in deletion
+
+    try {
+      for (const session of selectedSessions) {
+        const operationKey = `${session.id}:${session.revision}`;
+        const mutationId =
+          deleteMutationIdsRef.current.get(operationKey) ?? crypto.randomUUID();
+        deleteMutationIdsRef.current.set(operationKey, mutationId);
+        const controller = new AbortController();
+        bulkDeleteControllersRef.current.add(controller);
+        try {
           await deleteSession(
-            sessionId,
+            session.id,
             session.revision,
-            crypto.randomUUID(),
-            undefined,  // no signal needed here as we don't cancel during bulk delete
+            mutationId,
+            controller.signal,
           );
-          successCount++;
+          deleteMutationIdsRef.current.delete(operationKey);
+          deletedIds.add(session.id);
+        } catch {
+          if (controller.signal.aborted) break;
+          errorCount++;
+        } finally {
+          bulkDeleteControllersRef.current.delete(controller);
         }
-      } catch (error) {
-        errorCount++;
-        console.error(`Failed to delete session ${sessionId}:`, error);
       }
-    }
 
-    // Update the UI - remove deleted sessions from list
-    if (successCount > 0) {
-      setSessions(prev => prev.filter(session => !selectedSessionIds.has(session.id)));
+      if (deletedIds.size > 0) {
+        setSessions((current) =>
+          current.filter((session) => !deletedIds.has(session.id)),
+        );
+        setSelectedSessionIds((current) => {
+          const remaining = new Set(current);
+          for (const id of deletedIds) remaining.delete(id);
+          return remaining;
+        });
+      }
+      if (errorCount > 0) {
+        setError(`Some sessions could not be deleted. ${errorCount} failed.`);
+      }
+    } finally {
+      setBulkDeleting(false);
     }
-
-    if (errorCount > 0) {
-      setError(`Some sessions could not be deleted. ${errorCount} failed.`);
-    }
-    
-    // Clear selections
-    setSelectedSessionIds(new Set());
-  }, [selectedSessionIds, sessions]);
+  }, [bulkDeleting, selectedSessionIds, sessions]);
 
   return (
     <AppShell
@@ -650,17 +682,19 @@ export function SessionLibrary() {
               {selectedSessionIds.size > 0 && (
                 <div className="bulk-actions-toolbar">
                   <span>{selectedSessionIds.size} session(s) selected</span>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="danger-button"
-                    onClick={handleBulkDelete}
+                    onClick={() => void handleBulkDelete()}
+                    disabled={bulkDeleting}
                   >
-                    Delete Selected
+                    {bulkDeleting ? "Deleting…" : "Delete Selected"}
                   </button>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="secondary-button"
                     onClick={deselectAllSessions}
+                    disabled={bulkDeleting}
                   >
                     Clear Selection
                   </button>

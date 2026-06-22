@@ -395,7 +395,7 @@ kbd {
   font-size: 12px;
 }
 
-.bulk-actions-toolbar button {
+.bulk-actions-toolbar .danger-button {
   margin-left: auto;
 }
 
@@ -1405,10 +1405,10 @@ kbd {
 
 @media (max-width: 900px) {
   .session-list-header {
-    grid-template-columns: minmax(0, 1fr) 150px 56px;
+    grid-template-columns: 40px minmax(0, 1fr) 150px 56px;
   }
 
-  .session-list-header span:nth-child(3) {
+  .session-list-header span:nth-child(4) {
     display: none;
   }
 
