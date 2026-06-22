@@ -399,17 +399,26 @@ kbd {
   margin-left: auto;
 }
 
-/* Fix for session row checkbox click conflicts */
-.session-row input[type="checkbox"] {
-  cursor: pointer;
-}
-
 .session-row {
   position: relative;
   display: grid;
   min-height: 76px;
-  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-columns: 40px minmax(0, 1fr) 56px;
   border-bottom: 1px solid var(--border);
+}
+
+.session-row-checkbox {
+  display: grid;
+  place-items: center;
+}
+
+.session-row-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+  border-radius: 4px;
 }
 
 .session-row:last-child {

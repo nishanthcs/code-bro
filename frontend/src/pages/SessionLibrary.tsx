@@ -683,6 +683,17 @@ export function SessionLibrary() {
               </div>
               {sessions.map((session) => (
                 <article className="session-row" role="row" key={session.id}>
+                  <div className="session-row-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedSessionIds.has(session.id)}
+                      onChange={() => toggleSessionSelection(session.id)}
+                      aria-label={`Select session ${session.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    />
+                  </div>
                   <div className="session-row-main-wrapper">
                     <button
                       className="session-row-main"
@@ -744,15 +755,6 @@ export function SessionLibrary() {
                     )}
                   </div>
                   <div className="card-menu">
-                    <input
-                      type="checkbox"
-                      checked={selectedSessionIds.has(session.id)}
-                      onChange={() => toggleSessionSelection(session.id)}
-                      aria-label={`Select session ${session.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation(); // Prevent triggering row click when clicking checkbox
-                      }}
-                    />
                     <button
                       ref={(node) => {
                         if (node) {
