@@ -5,7 +5,9 @@ Python editor, in-browser execution, named and tagged autosaved sessions,
 search, local automatic tagging, reference URLs, Markdown Notes, and
 light/dark themes.
 
-## Session dashboard
+## Features
+
+### Session dashboard
 
 - Compact list view with session name, tags, code preview, optional shortened
   Reference link, updated date, and created date.
@@ -16,7 +18,7 @@ light/dark themes.
 - Press `/` to focus search and `N` to create a session when focus is not in a
   form control.
 
-## Editor and runner
+### Editor and runner
 
 - Python syntax highlighting without autocomplete or completion UI.
 - Python-aware indentation is preserved when Enter creates a new line.
@@ -50,6 +52,8 @@ light/dark themes.
 
 ## Development
 
+### Install dependencies
+
 Prerequisites:
 
 - Node.js 24.16.0 (exactly; use `.node-version` or `.nvmrc`)
@@ -67,6 +71,10 @@ npm ci
 This installs the backend runtime, test, development, and macOS packaging
 dependencies into `.venv`.
 
+### Run locally
+
+#### Development servers
+
 Start the full development environment from the repository root:
 
 ```bash
@@ -78,6 +86,21 @@ Open `http://127.0.0.1:5173`. The development controller starts:
 - Vite UI: `127.0.0.1:5173`
 - FastAPI persistence API: `127.0.0.1:8765`
 - Isolated execution origin: `127.0.0.1:8766`
+
+#### Production build and servers
+
+To create a production build and launch the application and execution servers
+with one command:
+
+```bash
+npm start
+```
+
+The controller selects two available loopback ports, generates a per-launch API
+token, opens CodeBro in the default browser, and stores sessions under
+`~/Library/Application Support/CodeBro`.
+
+#### Backend only
 
 To run only the FastAPI persistence backend:
 
@@ -93,7 +116,7 @@ The standalone backend uses the development API token `dev-token`. Its strict
 Host validation expects requests to arrive through the Vite development proxy
 at `http://127.0.0.1:5173`.
 
-## Verification
+### Verification
 
 ```bash
 npm test
@@ -111,7 +134,13 @@ npm run dev
 npm run smoke:ui
 ```
 
-## macOS package
+## macOS distribution
+
+CodeBro supports macOS 14 or newer on Apple silicon. The packaged application
+includes its Python runtime and other dependencies; the destination Mac does
+not need Python, Node.js, uv, or npm.
+
+### Build the app and DMG
 
 If you installed the `package` extra during development setup, build the
 application and DMG with:
@@ -125,6 +154,29 @@ Set `CODEBRO_NOTARY_PROFILE` to an `xcrun notarytool` keychain profile to
 notarize and staple both the application and DMG. Without release credentials,
 the script generates a validated unsigned development bundle at
 `release/CodeBro.app`.
+
+### Install from the DMG
+
+1. Copy `release/CodeBro.dmg` to the destination Mac.
+2. Double-click `CodeBro.dmg` to mount it.
+3. Drag `CodeBro.app` into the Applications folder.
+4. Eject the CodeBro disk image.
+5. Open CodeBro from Applications.
+
+If you received `CodeBro.app` directly instead of the DMG, copy it into the
+Applications folder and open it from there.
+
+### Open an unsigned development build
+
+A build created without signing and notarization credentials may be blocked by
+Gatekeeper. Only bypass this protection for a build from a source you trust:
+
+1. Control-click `CodeBro.app` in Applications and select **Open**.
+2. Select **Open** in the confirmation dialog.
+3. If macOS still blocks the app, open **System Settings → Privacy & Security**
+   and select **Open Anyway** for CodeBro.
+
+A signed and notarized build opens normally without these additional steps.
 
 ## Security boundary
 

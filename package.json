@@ -6,6 +6,7 @@
     "frontend"
   ],
   "scripts": {
+    "start": "npm run build && .venv/bin/codebro",
     "dev": "node scripts/dev.mjs",
     "dev:frontend": "npm run dev --workspace frontend",
     "test": "npm run test --workspace frontend",
