@@ -461,4 +461,58 @@ describe("SessionLibrary data operations", () => {
     await user.click(cancel);
     expect(actions).toHaveFocus();
   });
+
+  it("does not render checkbox header when there are no sessions", async () => {
+    mockedListSessions.mockResolvedValue(page([]));
+    renderLibrary();
+
+    await waitFor(() => expect(mockedListSessions).toHaveBeenCalled());
+
+    expect(
+      screen.queryByRole("checkbox", { name: "Select all sessions" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("properly handles checkbox selection with multiple sessions", async () => {
+    mockedListSessions.mockResolvedValue(
+      page([
+        makeSummary("a", "Alpha"),
+        makeSummary("b", "Bravo"),
+      ])
+    );
+    renderLibrary();
+
+    await screen.findByText("Alpha");
+
+    const selectAllCheckbox = screen.getByRole("checkbox", { 
+      name: "Select all sessions" 
+    });
+    
+    // Initially no sessions selected, so select all should be unchecked
+    expect(selectAllCheckbox).not.toBeChecked();
+    
+    // Select first session
+    const firstSessionCheckbox = screen.getByRole("checkbox", { 
+      name: "Select session Alpha" 
+    });
+    await userEvent.click(firstSessionCheckbox);
+    
+    // Should still be unchecked since not all are selected
+    expect(selectAllCheckbox).not.toBeChecked();
+    
+    // Select second session
+    const secondSessionCheckbox = screen.getByRole("checkbox", { 
+      name: "Select session Bravo" 
+    });
+    await userEvent.click(secondSessionCheckbox);
+    
+    // Now all should be selected
+    expect(selectAllCheckbox).toBeChecked();
+    
+    // Deselect one session
+    await userEvent.click(firstSessionCheckbox);
+    
+    // Should no longer be checked
+    expect(selectAllCheckbox).not.toBeChecked();
+  });
 });

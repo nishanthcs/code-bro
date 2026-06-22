@@ -329,7 +329,7 @@ export function SessionLibrary() {
   }, []);
 
   const isAllSelected = useMemo(() => {
-    return sessions.length > 0 && selectedSessionIds.size === sessions.length;
+    return selectedSessionIds.size > 0 && selectedSessionIds.size === sessions.length;
   }, [sessions, selectedSessionIds]);
 
   const toggleSelectAll = useCallback(() => {
@@ -668,7 +668,7 @@ export function SessionLibrary() {
               )}
               <div className="session-list" role="table" aria-label="Sessions">
               <div className="session-list-header" role="row">
-                <span role="columnheader">
+                <span className="session-row-checkbox" role="columnheader">
                   <input
                     type="checkbox"
                     checked={isAllSelected}
