@@ -478,41 +478,119 @@ describe("SessionLibrary data operations", () => {
       page([
         makeSummary("a", "Alpha"),
         makeSummary("b", "Bravo"),
-      ])
+      ]),
     );
     renderLibrary();
 
     await screen.findByText("Alpha");
 
-    const selectAllCheckbox = screen.getByRole("checkbox", { 
-      name: "Select all sessions" 
+    const selectAllCheckbox = screen.getByRole("checkbox", {
+      name: "Select all sessions",
     });
-    
-    // Initially no sessions selected, so select all should be unchecked
     expect(selectAllCheckbox).not.toBeChecked();
-    
-    // Select first session
-    const firstSessionCheckbox = screen.getByRole("checkbox", { 
-      name: "Select session Alpha" 
+
+    const firstSessionCheckbox = screen.getByRole("checkbox", {
+      name: "Select session Alpha",
     });
     await userEvent.click(firstSessionCheckbox);
-    
-    // Should still be unchecked since not all are selected
     expect(selectAllCheckbox).not.toBeChecked();
-    
-    // Select second session
-    const secondSessionCheckbox = screen.getByRole("checkbox", { 
-      name: "Select session Bravo" 
+
+    const secondSessionCheckbox = screen.getByRole("checkbox", {
+      name: "Select session Bravo",
     });
     await userEvent.click(secondSessionCheckbox);
-    
-    // Now all should be selected
     expect(selectAllCheckbox).toBeChecked();
-    
-    // Deselect one session
+
     await userEvent.click(firstSessionCheckbox);
-    
-    // Should no longer be checked
     expect(selectAllCheckbox).not.toBeChecked();
+  });
+
+  it("keeps failed bulk deletions visible and selected", async () => {
+    mockedListSessions.mockResolvedValue(
+      page([
+        makeSummary("a", "Alpha"),
+        makeSummary("b", "Bravo"),
+      ]),
+    );
+    mockedDeleteSession
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("connection lost"));
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderLibrary();
+
+    await screen.findByText("Alpha");
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select all sessions" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete Selected" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("Alpha")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Bravo")).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select session Bravo" }),
+    ).toBeChecked();
+    expect(
+      screen.getByText("Some sessions could not be deleted. 1 failed."),
+    ).toBeInTheDocument();
+  });
+
+  it("reuses a bulk-delete mutation ID after an uncertain failure", async () => {
+    mockedListSessions.mockResolvedValue(page([makeSummary("a", "Alpha")]));
+    mockedDeleteSession
+      .mockRejectedValueOnce(new Error("connection lost"))
+      .mockResolvedValueOnce(undefined);
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderLibrary();
+
+    await screen.findByText("Alpha");
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select session Alpha" }),
+    );
+    const deleteSelected = screen.getByRole("button", {
+      name: "Delete Selected",
+    });
+    await userEvent.click(deleteSelected);
+    expect(await screen.findByText(/1 failed/)).toBeInTheDocument();
+    await userEvent.click(deleteSelected);
+
+    await waitFor(() => expect(mockedDeleteSession).toHaveBeenCalledTimes(2));
+    expect(mockedDeleteSession.mock.calls[0]?.[2]).toBe(
+      mockedDeleteSession.mock.calls[1]?.[2],
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Alpha")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("clears selection when search results are replaced", async () => {
+    mockedListSessions
+      .mockResolvedValueOnce(page([makeSummary("a", "Alpha")]))
+      .mockResolvedValueOnce(page([makeSummary("b", "Bravo")]));
+    renderLibrary();
+
+    await screen.findByText("Alpha");
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select session Alpha" }),
+    );
+    expect(screen.getByText("1 session(s) selected")).toBeInTheDocument();
+
+    await userEvent.type(
+      screen.getByRole("textbox", {
+        name: "Search sessions by name or tag",
+      }),
+      "bravo",
+    );
+
+    await screen.findByText("Bravo");
+    expect(
+      screen.queryByText("1 session(s) selected"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select session Bravo" }),
+    ).not.toBeChecked();
   });
 });
