@@ -23,8 +23,8 @@ import type { OutputFragment, RunStatus } from "../types";
 import { ResizeHandle } from "./ResizeHandle";
 import {
   SessionNotesPanel,
+  type SessionNotesPanelHandle,
 } from "./SessionNotesPanel";
-import type { SessionNotesEditorHandle } from "./SessionNotesEditor";
 
 function statusLabel(status: RunStatus, durationMs: number | null) {
   switch (status) {
@@ -98,7 +98,7 @@ export function RunnerPanel({
   const lowerRef = useRef<HTMLDivElement>(null);
   const stdinRef = useRef<HTMLTextAreaElement>(null);
   const showInputRef = useRef<HTMLButtonElement>(null);
-  const notesEditorRef = useRef<SessionNotesEditorHandle | null>(null);
+  const notesPanelRef = useRef<SessionNotesPanelHandle | null>(null);
   const previousStdinCollapsedRef = useRef(stdinCollapsed);
   const previousNotesCollapsedRef = useRef(notesCollapsed);
   const stdinResize = useVerticalPercentResize({
@@ -130,19 +130,19 @@ export function RunnerPanel({
   useEffect(() => {
     if (previousNotesCollapsedRef.current === notesCollapsed) return;
     previousNotesCollapsedRef.current = notesCollapsed;
-    if (notesCollapsed) {
-      showInputRef.current?.focus();
-    } else {
-      notesEditorRef.current?.focus();
-    }
+    notesPanelRef.current?.focus();
   }, [notesCollapsed]);
+
+  const panelClasses = [
+    "runner-panel",
+    stdinCollapsed ? "runner-panel--stdin-collapsed" : "",
+    notesCollapsed ? "runner-panel--notes-collapsed" : "runner-panel--notes-expanded",
+  ].filter(Boolean).join(" ");
 
   return (
     <aside
       ref={panelRef}
-      className={
-        stdinCollapsed ? "runner-panel runner-panel--stdin-collapsed" : "runner-panel"
-      }
+      className={panelClasses}
       style={
         { "--stdin-height": `${stdinHeightPercent}%` } as CSSProperties
       }
@@ -203,7 +203,7 @@ export function RunnerPanel({
         style={
           notesCollapsed
             ? { gridTemplateRows: "minmax(180px, 1fr) auto" } as CSSProperties
-            : { "--notes-height": `${notesHeightPercent}%`, gridTemplateRows: "minmax(180px, 1fr) 8px minmax(120px, var(--notes-height, 35%))" } as CSSProperties
+            : { "--notes-height": `${notesHeightPercent}%` } as CSSProperties
         }
       >
         <section className="runner-card output-card">
@@ -281,11 +281,11 @@ export function RunnerPanel({
           />
         )}
         <SessionNotesPanel
+          ref={notesPanelRef}
           notesMarkdown={notesMarkdown}
           onNotesMarkdownChange={onNotesMarkdownChange}
           collapsed={notesCollapsed}
           onToggle={onToggleNotes}
-          editorRef={notesEditorRef}
         />
       </div>
     </aside>

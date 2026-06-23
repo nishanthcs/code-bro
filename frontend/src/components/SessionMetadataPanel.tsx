@@ -16,7 +16,7 @@ const STORAGE_KEY = "codebro-session-metadata-expanded";
 
 function initialExpanded(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) === "true";
+    return window.localStorage.getItem(STORAGE_KEY) === "true";
   } catch {
     return false;
   }
@@ -24,7 +24,7 @@ function initialExpanded(): boolean {
 
 function persistExpanded(value: boolean): void {
   try {
-    localStorage.setItem(STORAGE_KEY, String(value));
+    window.localStorage.setItem(STORAGE_KEY, String(value));
   } catch {
     // The preference is optional when browser storage is unavailable.
   }

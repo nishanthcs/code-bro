@@ -15,11 +15,11 @@ vi.mock("../lib/api", async (importOriginal) => {
 });
 
 beforeEach(() => {
-  localStorage.clear();
+  window.localStorage.clear();
 });
 
 it("restores disclosure preference and exposes a compact summary", async () => {
-  localStorage.setItem("codebro-session-metadata-expanded", "false");
+  window.localStorage.setItem("codebro-session-metadata-expanded", "false");
   render(
     <SessionMetadataPanel
       tags={["Python", "Async", "HTTP"]}
@@ -37,7 +37,7 @@ it("restores disclosure preference and exposes a compact summary", async () => {
 
   await userEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "true");
-  expect(localStorage.getItem("codebro-session-metadata-expanded")).toBe(
+  expect(window.localStorage.getItem("codebro-session-metadata-expanded")).toBe(
     "true",
   );
 });

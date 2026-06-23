@@ -3,10 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { SessionNotesPanel } from "./SessionNotesPanel";
 
-beforeEach(() => {
-  localStorage.clear();
-});
-
 function TestHarness({
   initialCollapsed = true,
 }: { initialCollapsed?: boolean } = {}) {

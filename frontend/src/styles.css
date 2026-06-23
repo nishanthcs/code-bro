@@ -1096,11 +1096,28 @@ kbd {
   grid-template-rows: minmax(0, 1fr);
 }
 
+.runner-panel--notes-expanded:not(.runner-panel--stdin-collapsed) {
+  grid-template-rows:
+    minmax(120px, min(var(--stdin-height, 34%), calc(100% - 226px)))
+    8px
+    minmax(218px, 1fr);
+}
+
 .runner-panel__lower {
   display: grid;
   min-height: 0;
   gap: 0;
   overflow: hidden;
+}
+
+.runner-panel--notes-expanded .runner-panel__lower {
+  grid-template-rows:
+    minmax(93px, 1fr)
+    8px
+    minmax(
+      117px,
+      clamp(117px, var(--notes-height, 35%), calc(100% - 101px))
+    );
 }
 
 .runner-card {

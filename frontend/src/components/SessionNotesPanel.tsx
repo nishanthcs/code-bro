@@ -4,7 +4,6 @@ import {
   useId,
   useImperativeHandle,
   useRef,
-  type RefObject,
 } from "react";
 import { SessionNotesEditor, type SessionNotesEditorHandle } from "./SessionNotesEditor";
 
@@ -17,7 +16,6 @@ interface SessionNotesPanelProps {
   onNotesMarkdownChange: (markdown: string) => void;
   collapsed: boolean;
   onToggle: () => void;
-  editorRef?: RefObject<SessionNotesEditorHandle | null>;
 }
 
 export const SessionNotesPanel = forwardRef<
@@ -29,12 +27,12 @@ export const SessionNotesPanel = forwardRef<
     onNotesMarkdownChange,
     collapsed,
     onToggle,
-    editorRef,
   },
   ref,
 ) {
   const contentId = useId();
   const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const editorRef = useRef<SessionNotesEditorHandle | null>(null);
 
   useImperativeHandle(
     ref,
@@ -42,12 +40,12 @@ export const SessionNotesPanel = forwardRef<
       focus: () => {
         if (collapsed) {
           toggleRef.current?.focus();
-        } else if (editorRef?.current) {
-          editorRef.current.focus();
+        } else {
+          editorRef.current?.focus();
         }
       },
     }),
-    [collapsed, editorRef],
+    [collapsed],
   );
 
   const trimmedNotes = notesMarkdown.trim();

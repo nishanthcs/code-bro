@@ -57,4 +57,56 @@ describe("RunnerPanel", () => {
     rerender(<RunnerPanel {...baseProps} stdinCollapsed={false} />);
     expect(screen.getByLabelText("Program input")).toHaveFocus();
   });
+
+  it("moves focus between the notes editor and its restore control", () => {
+    const { rerender } = render(
+      <RunnerPanel
+        {...baseProps}
+        stdinCollapsed={false}
+        notesCollapsed={false}
+      />,
+    );
+    screen.getByRole("textbox", { name: "Session notes" }).focus();
+
+    rerender(
+      <RunnerPanel
+        {...baseProps}
+        stdinCollapsed={false}
+        notesCollapsed
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Expand session notes panel" }),
+    ).toHaveFocus();
+
+    rerender(
+      <RunnerPanel
+        {...baseProps}
+        stdinCollapsed={false}
+        notesCollapsed={false}
+      />,
+    );
+    expect(
+      screen.getByRole("textbox", { name: "Session notes" }),
+    ).toHaveFocus();
+  });
+
+  it("uses bounded nested rows while notes are expanded", () => {
+    const { container } = render(
+      <RunnerPanel
+        {...baseProps}
+        stdinCollapsed={false}
+        stdinHeightPercent={65}
+        notesHeightPercent={60}
+        notesCollapsed={false}
+      />,
+    );
+
+    expect(container.querySelector(".runner-panel")).toHaveClass(
+      "runner-panel--notes-expanded",
+    );
+    expect(container.querySelector(".runner-panel__lower")).toHaveStyle({
+      "--notes-height": "60%",
+    });
+  });
 });
