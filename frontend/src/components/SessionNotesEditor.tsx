@@ -1,5 +1,12 @@
 import { Bold, Code, Heading1, Italic, Link, List, Pilcrow } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -87,16 +94,32 @@ const safeComponents: Components = {
   img: () => null,
 };
 
-export function SessionNotesEditor({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
+export interface SessionNotesEditorHandle {
+  focus: () => void;
+}
+
+export const SessionNotesEditor = forwardRef<
+  SessionNotesEditorHandle,
+  { value: string; onChange: (value: string) => void }
+>(function SessionNotesEditor({ value, onChange }, ref) {
   const [mode, setMode] = useState<"edit" | "preview">("edit");
   const [error, setError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: () => {
+        if (mode === "edit") {
+          textareaRef.current?.focus();
+        } else {
+          containerRef.current?.querySelector<HTMLButtonElement>(".notes-editor__tab")?.focus();
+        }
+      },
+    }),
+    [mode],
+  );
 
   const commitValue = useCallback(
     (nextValue: string) => {
@@ -162,9 +185,8 @@ export function SessionNotesEditor({
   );
 
   return (
-    <div className="notes-editor">
+    <div ref={containerRef} className="notes-editor">
       <div className="notes-editor__toolbar">
-        <span className="notes-editor__label">Notes</span>
         <div className="notes-editor__formatting">
           {tools.map((tool) => (
             <button
@@ -214,7 +236,6 @@ export function SessionNotesEditor({
           onChange={(event) => commitValue(event.target.value)}
           placeholder="Write Markdown notes…"
           aria-label="Session notes"
-          rows={6}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
@@ -237,4 +258,4 @@ export function SessionNotesEditor({
       )}
     </div>
   );
-}
+});

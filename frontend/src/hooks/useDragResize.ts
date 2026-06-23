@@ -75,12 +75,14 @@ export function useVerticalPercentResize({
   containerRef,
   min,
   max,
+  reversed = false,
   onChange,
   onCommit,
 }: {
   containerRef: RefObject<HTMLElement | null>;
   min: number;
   max: number;
+  reversed?: boolean;
   onChange: (percent: number) => void;
   onCommit?: (percent: number) => void;
 }) {
@@ -112,7 +114,8 @@ export function useVerticalPercentResize({
       const height = container.getBoundingClientRect().height;
       if (height <= 0) return;
 
-      const deltaPercent = ((event.clientY - state.startY) / height) * 100;
+      const rawDelta = ((event.clientY - state.startY) / height) * 100;
+      const deltaPercent = reversed ? -rawDelta : rawDelta;
       const nextPercent = Math.min(
         Math.max(state.startPercent + deltaPercent, min),
         max,
@@ -120,7 +123,7 @@ export function useVerticalPercentResize({
       state.latestPercent = nextPercent;
       onChange(nextPercent);
     },
-    [containerRef, max, min, onChange],
+    [containerRef, max, min, onChange, reversed],
   );
 
   const finishDrag = useCallback(

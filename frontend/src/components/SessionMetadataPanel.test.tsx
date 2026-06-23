@@ -27,7 +27,6 @@ it("restores disclosure preference and exposes a compact summary", async () => {
       refUrl="https://example.com/docs"
       onRefUrlChange={() => undefined}
       notesMarkdown="two words"
-      onNotesMarkdownChange={() => undefined}
     />,
   );
 
@@ -53,7 +52,6 @@ it("supports imperative expand and toggle actions for keyboard shortcuts", () =>
       refUrl={null}
       onRefUrlChange={() => undefined}
       notesMarkdown=""
-      onNotesMarkdownChange={() => undefined}
     />,
   );
   const toggle = screen.getByRole("button", { name: /Metadata/ });

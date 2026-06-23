@@ -12,12 +12,19 @@ import {
 import { useEffect, useRef, type CSSProperties } from "react";
 import { useVerticalPercentResize } from "../hooks/useDragResize";
 import {
+  persistNotesHeight,
   persistStdinHeight,
+  NOTES_HEIGHT_MAX,
+  NOTES_HEIGHT_MIN,
   STDIN_HEIGHT_MAX,
   STDIN_HEIGHT_MIN,
 } from "../lib/preferences";
 import type { OutputFragment, RunStatus } from "../types";
 import { ResizeHandle } from "./ResizeHandle";
+import {
+  SessionNotesPanel,
+} from "./SessionNotesPanel";
+import type { SessionNotesEditorHandle } from "./SessionNotesEditor";
 
 function statusLabel(status: RunStatus, durationMs: number | null) {
   switch (status) {
@@ -63,6 +70,12 @@ export function RunnerPanel({
   onStdinHeightChange,
   stdinCollapsed,
   onToggleStdin,
+  notesMarkdown,
+  onNotesMarkdownChange,
+  notesHeightPercent,
+  onNotesHeightChange,
+  notesCollapsed,
+  onToggleNotes,
 }: {
   stdin: string;
   onStdinChange: (value: string) => void;
@@ -74,17 +87,34 @@ export function RunnerPanel({
   onStdinHeightChange: (percent: number) => void;
   stdinCollapsed: boolean;
   onToggleStdin: () => void;
+  notesMarkdown: string;
+  onNotesMarkdownChange: (markdown: string) => void;
+  notesHeightPercent: number;
+  onNotesHeightChange: (percent: number) => void;
+  notesCollapsed: boolean;
+  onToggleNotes: () => void;
 }) {
   const panelRef = useRef<HTMLElement>(null);
+  const lowerRef = useRef<HTMLDivElement>(null);
   const stdinRef = useRef<HTMLTextAreaElement>(null);
   const showInputRef = useRef<HTMLButtonElement>(null);
+  const notesEditorRef = useRef<SessionNotesEditorHandle | null>(null);
   const previousStdinCollapsedRef = useRef(stdinCollapsed);
-  const resize = useVerticalPercentResize({
+  const previousNotesCollapsedRef = useRef(notesCollapsed);
+  const stdinResize = useVerticalPercentResize({
     containerRef: panelRef,
     min: STDIN_HEIGHT_MIN,
     max: STDIN_HEIGHT_MAX,
     onChange: onStdinHeightChange,
     onCommit: persistStdinHeight,
+  });
+  const notesResize = useVerticalPercentResize({
+    containerRef: lowerRef,
+    min: NOTES_HEIGHT_MIN,
+    max: NOTES_HEIGHT_MAX,
+    reversed: true,
+    onChange: onNotesHeightChange,
+    onCommit: persistNotesHeight,
   });
 
   useEffect(() => {
@@ -96,6 +126,16 @@ export function RunnerPanel({
       stdinRef.current?.focus();
     }
   }, [stdinCollapsed]);
+
+  useEffect(() => {
+    if (previousNotesCollapsedRef.current === notesCollapsed) return;
+    previousNotesCollapsedRef.current = notesCollapsed;
+    if (notesCollapsed) {
+      showInputRef.current?.focus();
+    } else {
+      notesEditorRef.current?.focus();
+    }
+  }, [notesCollapsed]);
 
   return (
     <aside
@@ -149,70 +189,105 @@ export function RunnerPanel({
             onValueChange={onStdinHeightChange}
             onValueCommit={persistStdinHeight}
             onPointerDown={(event) =>
-              resize.handlePointerDown(event, stdinHeightPercent)
+              stdinResize.handlePointerDown(event, stdinHeightPercent)
             }
-            onPointerMove={resize.handlePointerMove}
-            onPointerUp={resize.handlePointerUp}
-            onPointerCancel={resize.handlePointerCancel}
+            onPointerMove={stdinResize.handlePointerMove}
+            onPointerUp={stdinResize.handlePointerUp}
+            onPointerCancel={stdinResize.handlePointerCancel}
           />
         </>
       )}
-      <section className="runner-card output-card">
-        <div className="panel-heading output-heading">
-          <div>
-            <span className="eyebrow">console</span>
-            <h2>
-              <TerminalSquare size={17} />
-              Output
-            </h2>
-          </div>
-          <div className="panel-actions">
-            {stdinCollapsed && (
+      <div
+        ref={lowerRef}
+        className="runner-panel__lower"
+        style={
+          notesCollapsed
+            ? { gridTemplateRows: "minmax(180px, 1fr) auto" } as CSSProperties
+            : { "--notes-height": `${notesHeightPercent}%`, gridTemplateRows: "minmax(180px, 1fr) 8px minmax(120px, var(--notes-height, 35%))" } as CSSProperties
+        }
+      >
+        <section className="runner-card output-card">
+          <div className="panel-heading output-heading">
+            <div>
+              <span className="eyebrow">console</span>
+              <h2>
+                <TerminalSquare size={17} />
+                Output
+              </h2>
+            </div>
+            <div className="panel-actions">
+              {stdinCollapsed && (
+                <button
+                  ref={showInputRef}
+                  className="ghost-button ghost-button--small"
+                  type="button"
+                  onClick={onToggleStdin}
+                >
+                  <PanelTopOpen size={14} />
+                  Show input
+                </button>
+              )}
               <button
-                ref={showInputRef}
                 className="ghost-button ghost-button--small"
                 type="button"
-                onClick={onToggleStdin}
+                onClick={onClear}
+                disabled={status === "running" || output.length === 0}
               >
-                <PanelTopOpen size={14} />
-                Show input
+                <Eraser size={14} />
+                Clear
               </button>
-            )}
-            <button
-              className="ghost-button ghost-button--small"
-              type="button"
-              onClick={onClear}
-              disabled={status === "running" || output.length === 0}
-            >
-              <Eraser size={14} />
-              Clear
-            </button>
-          </div>
-        </div>
-        <div className="console" aria-live="polite" aria-label="Program output">
-          {output.length === 0 ? (
-            <div className="console-empty">
-              <span className="console-prompt">&gt;_</span>
-              <p>Run your code and the output will land here.</p>
             </div>
-          ) : (
-            <pre>
-              {output.map((fragment, index) => (
-                <span
-                  className={`stream-${fragment.stream}`}
-                  key={`${fragment.sequence}-${index}`}
-                >
-                  {fragment.text}
-                </span>
-              ))}
-            </pre>
-          )}
-        </div>
-        <div className={`run-status run-status--${status}`}>
-          <StatusIcon status={status} />
-          {statusLabel(status, durationMs)}
-        </div>
-      </section>
+          </div>
+          <div className="console" aria-live="polite" aria-label="Program output">
+            {output.length === 0 ? (
+              <div className="console-empty">
+                <span className="console-prompt">&gt;_</span>
+                <p>Run your code and the output will land here.</p>
+              </div>
+            ) : (
+              <pre>
+                {output.map((fragment, index) => (
+                  <span
+                    className={`stream-${fragment.stream}`}
+                    key={`${fragment.sequence}-${index}`}
+                  >
+                    {fragment.text}
+                  </span>
+                ))}
+              </pre>
+            )}
+          </div>
+          <div className={`run-status run-status--${status}`}>
+            <StatusIcon status={status} />
+            {statusLabel(status, durationMs)}
+          </div>
+        </section>
+        {!notesCollapsed && (
+          <ResizeHandle
+            direction="vertical"
+            label="Resize output and session notes panels"
+            value={notesHeightPercent}
+            min={NOTES_HEIGHT_MIN}
+            max={NOTES_HEIGHT_MAX}
+            step={5}
+            onValueChange={onNotesHeightChange}
+            onValueCommit={persistNotesHeight}
+            onPointerDown={(event) =>
+              notesResize.handlePointerDown(event, notesHeightPercent)
+            }
+            onPointerMove={notesResize.handlePointerMove}
+            onPointerUp={notesResize.handlePointerUp}
+            onPointerCancel={notesResize.handlePointerCancel}
+          />
+        )}
+        <SessionNotesPanel
+          notesMarkdown={notesMarkdown}
+          onNotesMarkdownChange={onNotesMarkdownChange}
+          collapsed={notesCollapsed}
+          onToggle={onToggleNotes}
+          editorRef={notesEditorRef}
+        />
+      </div>
     </aside>
   );
 }

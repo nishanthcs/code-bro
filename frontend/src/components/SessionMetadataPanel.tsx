@@ -9,7 +9,6 @@ import {
   type RefObject,
 } from "react";
 import { shortenReferenceUrl } from "../lib/referenceUrl";
-import { SessionNotesEditor } from "./SessionNotesEditor";
 import { SessionReferenceField } from "./SessionReferenceField";
 import { SessionTagEditor } from "./SessionTagEditor";
 
@@ -42,7 +41,6 @@ interface SessionMetadataPanelProps {
   refUrl: string | null;
   onRefUrlChange: (url: string | null) => void;
   notesMarkdown: string;
-  onNotesMarkdownChange: (markdown: string) => void;
   tagInputRef?: RefObject<HTMLInputElement | null>;
 }
 
@@ -56,7 +54,6 @@ export const SessionMetadataPanel = forwardRef<
     refUrl,
     onRefUrlChange,
     notesMarkdown,
-    onNotesMarkdownChange,
     tagInputRef,
   },
   ref,
@@ -148,10 +145,6 @@ export const SessionMetadataPanel = forwardRef<
             key={refUrl ?? ""}
             value={refUrl}
             onChange={onRefUrlChange}
-          />
-          <SessionNotesEditor
-            value={notesMarkdown}
-            onChange={onNotesMarkdownChange}
           />
         </div>
       )}
