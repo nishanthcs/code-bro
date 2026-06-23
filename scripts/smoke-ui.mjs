@@ -57,6 +57,9 @@ try {
   await page.getByRole("link", {
     name: `Open reference: ${referenceUrl}`,
   }).waitFor();
+  await page.getByRole("button", {
+    name: "Expand session notes panel",
+  }).click();
   const notes = page.getByRole("textbox", { name: "Session notes" });
   await notes.fill(
     "# Smoke notes\n\n[Docs](https://example.com/docs)\n\n![tracker](https://tracker.example/pixel.png)",
@@ -75,6 +78,25 @@ try {
   ) {
     throw new Error("Markdown Notes did not harden external links.");
   }
+  const notesSeparator = page.getByRole("separator", {
+    name: "Resize output and session notes panels",
+  });
+  await notesSeparator.focus();
+  await page.keyboard.press("ArrowDown");
+  const persistedNotesHeight = await notesSeparator.getAttribute(
+    "aria-valuenow",
+  );
+  await page.getByRole("button", {
+    name: "Collapse session notes panel",
+  }).click();
+  const restoreNotes = page.getByRole("button", {
+    name: "Expand session notes panel",
+  });
+  await restoreNotes.waitFor();
+  if (!(await restoreNotes.evaluate((element) => element === document.activeElement))) {
+    throw new Error("Collapsing Session Notes did not preserve keyboard focus.");
+  }
+  await page.getByLabel("Program output").waitFor();
   await page.getByLabel("Python code editor").waitFor();
 
   const editor = page.getByLabel("Python code editor");
@@ -173,11 +195,30 @@ try {
     throw new Error("The session Reference URL was not restored.");
   }
   if (
+    (await page.getByRole("button", {
+      name: "Expand session notes panel",
+    }).getAttribute("aria-expanded")) !== "false"
+  ) {
+    throw new Error("The Session Notes collapse preference was not restored.");
+  }
+  await page.getByRole("button", {
+    name: "Expand session notes panel",
+  }).click();
+  if (
     !(await page
       .getByRole("textbox", { name: "Session notes" })
       .inputValue()).includes("# Smoke notes")
   ) {
     throw new Error("The session Markdown Notes were not restored.");
+  }
+  if (
+    (await page
+      .getByRole("separator", {
+        name: "Resize output and session notes panels",
+      })
+      .getAttribute("aria-valuenow")) !== persistedNotesHeight
+  ) {
+    throw new Error("The Output/Notes panel height was not restored.");
   }
   await page.getByRole("link", {
     name: "Open reference",
