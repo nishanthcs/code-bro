@@ -91,8 +91,8 @@ line or selected lines. `Escape`, then `Tab`, temporarily disables CodeMirror's
 Tab indentation binding so keyboard users can leave the editor.
 
 Notes preview uses `react-markdown` with GFM, raw HTML disabled, remote images
-removed, and safe external-link attributes. Only the metadata disclosure
-preference is stored in localStorage.
+removed, and safe external-link attributes. Metadata and Notes-panel disclosure
+preferences are stored in localStorage, but Notes content remains SQLite-only.
 
 ## Availability feedback
 
@@ -102,11 +102,12 @@ alert explains that sessions cannot load or save and provides a retry action.
 
 ## Runner layout
 
-The editor/runner split and stdin/console split are resizable with pointers or
-keyboard-accessible separators. Closing stdin removes its resize handle and
-gives the console the full runner height; a `Show input` action restores the
-panel without discarding its text. Split sizes, stdin visibility, and
-per-session cursor selections are UI-only preferences stored in localStorage.
+The editor/runner, stdin/lower-runner, and output/Notes splits are resizable
+with pointers or keyboard-accessible separators. Closing stdin or Notes removes
+the corresponding resize handle and gives the remaining panels more space.
+Restore actions reopen each panel without discarding its content. Split sizes,
+stdin and Notes visibility, and per-session cursor selections are UI-only
+preferences stored in localStorage.
 
 ## Themes
 

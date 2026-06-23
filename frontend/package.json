@@ -1,6 +1,7 @@
 {
   "name": "codebro-frontend",
   "version": "0.1.0",
+  "description": "Local Python coding interview practice playground powered by React, CodeMirror, and Pyodide",
   "private": true,
   "type": "module",
   "scripts": {

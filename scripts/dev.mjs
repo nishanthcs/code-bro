@@ -5,8 +5,16 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const root = resolve(scriptDir, "..");
-const venvPython = resolve(root, ".venv", "bin", "python");
-const python = existsSync(venvPython) ? venvPython : "python3";
+const unixVenvPython = resolve(root, ".venv", "bin", "python");
+const windowsVenvPython = resolve(root, ".venv", "Scripts", "python.exe");
+const python = existsSync(unixVenvPython)
+  ? unixVenvPython
+  : existsSync(windowsVenvPython)
+    ? windowsVenvPython
+    : process.platform === "win32"
+      ? "python"
+      : "python3";
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const environment = {
   ...process.env,
   CODEBRO_API_TOKEN: "dev-token",
@@ -46,7 +54,7 @@ const commands = [
   },
   {
     name: "ui",
-    command: "npm",
+    command: npm,
     args: ["run", "dev", "--workspace", "frontend"],
     cwd: root,
   },
