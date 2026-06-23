@@ -37,9 +37,12 @@ import { useDirtyDraftNavigation } from "../hooks/useDirtyDraftNavigation";
 import { getSession } from "../lib/api";
 import {
   clampRunnerWidth,
+  initialNotesCollapsed,
+  initialNotesHeight,
   initialStdinCollapsed,
   initialRunnerWidth,
   initialStdinHeight,
+  persistNotesCollapsed,
   persistStdinCollapsed,
   persistRunnerWidth,
   RUNNER_WIDTH_MAX_RATIO,
@@ -86,6 +89,8 @@ function PlaygroundContent({
   const [runnerWidth, setRunnerWidth] = useState(initialRunnerWidth);
   const [stdinHeightPercent, setStdinHeightPercent] = useState(initialStdinHeight);
   const [stdinCollapsed, setStdinCollapsed] = useState(initialStdinCollapsed);
+  const [notesHeightPercent, setNotesHeightPercent] = useState(initialNotesHeight);
+  const [notesCollapsed, setNotesCollapsed] = useState(initialNotesCollapsed);
   const [editorResetToken, setEditorResetToken] = useState(0);
   const sessionNameRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -269,12 +274,6 @@ function PlaygroundContent({
             autosave.setDraft((current) => ({ ...current, ref_url: url }))
           }
           notesMarkdown={autosave.draft.notes_markdown}
-          onNotesMarkdownChange={(markdown) =>
-            autosave.setDraft((current) => ({
-              ...current,
-              notes_markdown: markdown,
-            }))
-          }
           tagInputRef={tagInputRef}
         />
         <div
@@ -340,6 +339,25 @@ function PlaygroundContent({
               setStdinCollapsed((collapsed) => {
                 const next = !collapsed;
                 persistStdinCollapsed(next);
+                return next;
+              })
+            }
+            notesMarkdown={autosave.draft.notes_markdown}
+            onNotesMarkdownChange={(markdown) =>
+              autosave.setDraft((current) => ({
+                ...current,
+                notes_markdown: markdown,
+              }))
+            }
+            notesHeightPercent={notesHeightPercent}
+            onNotesHeightChange={(percent) => {
+              setNotesHeightPercent(percent);
+            }}
+            notesCollapsed={notesCollapsed}
+            onToggleNotes={() =>
+              setNotesCollapsed((collapsed) => {
+                const next = !collapsed;
+                persistNotesCollapsed(next);
                 return next;
               })
             }

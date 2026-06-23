@@ -12,6 +12,12 @@ const baseProps = {
   stdinHeightPercent: 34,
   onStdinHeightChange: vi.fn(),
   onToggleStdin: vi.fn(),
+  notesMarkdown: "",
+  onNotesMarkdownChange: vi.fn(),
+  notesHeightPercent: 35,
+  onNotesHeightChange: vi.fn(),
+  notesCollapsed: true,
+  onToggleNotes: vi.fn(),
 };
 
 describe("RunnerPanel", () => {

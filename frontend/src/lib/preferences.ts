@@ -24,6 +24,8 @@ export const DEFAULT_EDITOR_THEME: EditorThemeId = "auto";
 export const DEFAULT_RUNNER_WIDTH = 380;
 export const DEFAULT_STDIN_HEIGHT_PERCENT = 34;
 export const DEFAULT_STDIN_COLLAPSED = false;
+export const DEFAULT_NOTES_HEIGHT_PERCENT = 35;
+export const DEFAULT_NOTES_COLLAPSED = true;
 
 export interface EditorCursorState {
   anchor: number;
@@ -34,6 +36,8 @@ export const RUNNER_WIDTH_MIN = 280;
 export const RUNNER_WIDTH_MAX_RATIO = 0.55;
 export const STDIN_HEIGHT_MIN = 20;
 export const STDIN_HEIGHT_MAX = 65;
+export const NOTES_HEIGHT_MIN = 25;
+export const NOTES_HEIGHT_MAX = 60;
 
 const STORAGE_KEYS = {
   editorFontSize: "codebro-editor-font-size",
@@ -41,6 +45,8 @@ const STORAGE_KEYS = {
   runnerWidth: "codebro-runner-width",
   stdinHeight: "codebro-stdin-height",
   stdinCollapsed: "codebro-stdin-collapsed",
+  notesHeight: "codebro-notes-height",
+  notesCollapsed: "codebro-notes-collapsed",
   editorCursorPrefix: "codebro-editor-cursor:",
 } as const;
 
@@ -158,6 +164,33 @@ export function persistStdinHeight(percent: number): void {
 
 export function persistStdinCollapsed(collapsed: boolean): void {
   safeStorage()?.setItem(STORAGE_KEYS.stdinCollapsed, String(collapsed));
+}
+
+export function initialNotesHeight(): number {
+  const stored = readNumber(STORAGE_KEYS.notesHeight);
+  if (
+    stored !== null &&
+    stored >= NOTES_HEIGHT_MIN &&
+    stored <= NOTES_HEIGHT_MAX
+  ) {
+    return stored;
+  }
+  return DEFAULT_NOTES_HEIGHT_PERCENT;
+}
+
+export function initialNotesCollapsed(): boolean {
+  const stored = safeStorage()?.getItem(STORAGE_KEYS.notesCollapsed);
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return DEFAULT_NOTES_COLLAPSED;
+}
+
+export function persistNotesHeight(percent: number): void {
+  safeStorage()?.setItem(STORAGE_KEYS.notesHeight, String(Math.round(percent)));
+}
+
+export function persistNotesCollapsed(collapsed: boolean): void {
+  safeStorage()?.setItem(STORAGE_KEYS.notesCollapsed, String(collapsed));
 }
 
 export function persistEditorCursor(
