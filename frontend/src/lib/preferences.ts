@@ -48,7 +48,14 @@ const STORAGE_KEYS = {
   notesHeight: "codebro-notes-height",
   notesCollapsed: "codebro-notes-collapsed",
   editorCursorPrefix: "codebro-editor-cursor:",
+  debuggerCollapsed: "codebro-debugger-collapsed",
+  debuggerHeight: "codebro-debugger-height",
 } as const;
+
+export const DEFAULT_DEBUGGER_COLLAPSED = true;
+export const DEFAULT_DEBUGGER_HEIGHT_PERCENT = 30;
+export const DEBUGGER_HEIGHT_MIN = 20;
+export const DEBUGGER_HEIGHT_MAX = 50;
 
 export function safeStorage(): Storage | null {
   try {
@@ -198,6 +205,29 @@ export function persistEditorCursor(
   cursor: EditorCursorState,
 ): void {
   safeStorage()?.setItem(editorCursorKey(sessionId), JSON.stringify(cursor));
+}
+
+export function initialDebuggerCollapsed(): boolean {
+  const stored = safeStorage()?.getItem(STORAGE_KEYS.debuggerCollapsed);
+  if (stored === "true") return true;
+  if (stored === "false") return false;
+  return DEFAULT_DEBUGGER_COLLAPSED;
+}
+
+export function persistDebuggerCollapsed(collapsed: boolean): void {
+  safeStorage()?.setItem(STORAGE_KEYS.debuggerCollapsed, String(collapsed));
+}
+
+export function initialDebuggerHeight(): number {
+  const stored = readNumber(STORAGE_KEYS.debuggerHeight);
+  if (stored !== null && stored >= DEBUGGER_HEIGHT_MIN && stored <= DEBUGGER_HEIGHT_MAX) {
+    return stored;
+  }
+  return DEFAULT_DEBUGGER_HEIGHT_PERCENT;
+}
+
+export function persistDebuggerHeight(percent: number): void {
+  safeStorage()?.setItem(STORAGE_KEYS.debuggerHeight, String(Math.round(percent)));
 }
 
 export function stepEditorFontSize(

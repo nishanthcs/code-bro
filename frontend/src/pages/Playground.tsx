@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/refs -- useExecution returns stable frame bindings, not render-read ref values. */
 import {
   ArrowLeft,
+  Bug,
   Check,
   CloudAlert,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -37,11 +39,15 @@ import { useDirtyDraftNavigation } from "../hooks/useDirtyDraftNavigation";
 import { getSession } from "../lib/api";
 import {
   clampRunnerWidth,
+  initialDebuggerCollapsed,
+  initialDebuggerHeight,
   initialNotesCollapsed,
   initialNotesHeight,
   initialStdinCollapsed,
   initialRunnerWidth,
   initialStdinHeight,
+  persistDebuggerCollapsed,
+  persistDebuggerHeight,
   persistNotesCollapsed,
   persistStdinCollapsed,
   persistRunnerWidth,
@@ -92,6 +98,9 @@ function PlaygroundContent({
   const [notesHeightPercent, setNotesHeightPercent] = useState(initialNotesHeight);
   const [notesCollapsed, setNotesCollapsed] = useState(initialNotesCollapsed);
   const [editorResetToken, setEditorResetToken] = useState(0);
+  const [breakpoints, setBreakpoints] = useState<Set<number>>(new Set());
+  const [debuggerCollapsed, setDebuggerCollapsed] = useState(initialDebuggerCollapsed);
+  const [debuggerHeightPercent, setDebuggerHeightPercent] = useState(initialDebuggerHeight);
   const sessionNameRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
   const metadataPanelRef = useRef<SessionMetadataPanelHandle | null>(null);
@@ -119,11 +128,74 @@ function PlaygroundContent({
       execution.status,
     );
 
+  const isDebuggable = canRun && execution.status !== "debug-running" && execution.status !== "debug-paused";
+  const isPaused = execution.status === "debug-paused";
+  const isDebugActive = execution.status === "debug-running" || execution.status === "debug-paused";
+  const sendDebugCommand = execution.sendDebugCommand;
+
+  useEffect(() => {
+    if (isDebugActive) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-expand debug panel on debug start
+      setDebuggerCollapsed(false);
+    }
+  }, [isDebugActive]);
+
   const handleRun = useCallback(() => {
     if (!canRun) return;
     void autosave.saveNow(false);
     execution.run(autosave.draft.code, stdin);
   }, [autosave, canRun, execution, stdin]);
+
+  const handleDebugAttach = useCallback(() => {
+    if (!isDebuggable) return;
+    void autosave.saveNow(false);
+    const bpArray = Array.from(breakpoints).sort((a, b) => a - b);
+    execution.startDebug(autosave.draft.code, stdin, bpArray);
+  }, [autosave, isDebuggable, execution, stdin, breakpoints]);
+
+  const handleDebugContinue = useCallback(() => {
+    if (!isPaused) return;
+    execution.sendDebugCommand("continue");
+  }, [execution, isPaused]);
+
+  const handleDebugStepOver = useCallback(() => {
+    if (!isPaused) return;
+    execution.sendDebugCommand("step-over");
+  }, [execution, isPaused]);
+
+  const handleDebugStepIn = useCallback(() => {
+    if (!isPaused) return;
+    execution.sendDebugCommand("step-in");
+  }, [execution, isPaused]);
+
+  const handleDebugStepOut = useCallback(() => {
+    if (!isPaused) return;
+    execution.sendDebugCommand("step-out");
+  }, [execution, isPaused]);
+
+  const handleDebugStop = useCallback(() => {
+    execution.stop();
+  }, [execution]);
+
+  const handleToggleBreakpoint = useCallback((line: number) => {
+    setBreakpoints((prev) => {
+      const next = new Set(prev);
+      if (next.has(line)) {
+        next.delete(line);
+      } else {
+        next.add(line);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isDebugActive) return;
+    sendDebugCommand(
+      "update-breakpoints",
+      Array.from(breakpoints).sort((a, b) => a - b),
+    );
+  }, [breakpoints, isDebugActive, sendDebugCommand]);
 
   useEffect(() => {
     if (!focusSessionName) return;
@@ -139,9 +211,20 @@ function PlaygroundContent({
     });
   }, []);
 
+  const debugStatus = useMemo(() => {
+    if (execution.status === "debug-running") return "attached";
+    if (execution.status === "debug-paused") return "attached";
+    return "idle";
+  }, [execution.status]);
+
   useEffect(() => {
     const handlePlaygroundShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      const target = event.target;
+      const isTextInput =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -161,6 +244,28 @@ function PlaygroundContent({
         sessionNameRef.current?.focus();
         sessionNameRef.current?.select();
         return;
+      }
+      if (isDebugActive && !isTextInput && !event.ctrlKey && !event.metaKey) {
+        if (event.key === "F5") {
+          event.preventDefault();
+          handleDebugContinue();
+          return;
+        }
+        if (event.key === "F10") {
+          event.preventDefault();
+          handleDebugStepOver();
+          return;
+        }
+        if (event.key === "F11" && !event.shiftKey) {
+          event.preventDefault();
+          handleDebugStepIn();
+          return;
+        }
+        if (event.key === "F11" && event.shiftKey) {
+          event.preventDefault();
+          handleDebugStepOut();
+          return;
+        }
       }
       if (
         event.ctrlKey &&
@@ -184,7 +289,7 @@ function PlaygroundContent({
     window.addEventListener("keydown", handlePlaygroundShortcut);
     return () =>
       window.removeEventListener("keydown", handlePlaygroundShortcut);
-  }, [autosave, handleRun, expandAndFocusTags]);
+  }, [autosave, handleRun, handleDebugContinue, handleDebugStepOver, handleDebugStepIn, handleDebugStepOut, expandAndFocusTags, isPaused, isDebugActive]);
 
   return (
     <AppShell
@@ -209,27 +314,44 @@ function PlaygroundContent({
               <Square size={15} fill="currentColor" />
               Stop
             </button>
-          ) : (
-            <button
-              className="run-button"
-              type="button"
-              onClick={handleRun}
-              disabled={!canRun}
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-              title="Run code (Cmd/Ctrl+Enter)"
-            >
-              {!execution.workerReady ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : (
-                <Play size={16} fill="currentColor" />
-              )}
-              {execution.status === "loading"
-                ? "Loading Python"
-                : !execution.workerReady
-                  ? "Resetting"
-                  : "Run"}
-              <kbd>⌘↵</kbd>
+          ) : isDebugActive ? (
+            <button className="stop-button" type="button" onClick={handleDebugStop}>
+              <Square size={15} fill="currentColor" />
+              Stop Debug
             </button>
+          ) : (
+            <>
+              <button
+                className="debug-button"
+                type="button"
+                onClick={handleDebugAttach}
+                disabled={!isDebuggable}
+                title="Start debugging"
+              >
+                <Bug size={15} />
+                Debug
+              </button>
+              <button
+                className="run-button"
+                type="button"
+                onClick={handleRun}
+                disabled={!canRun}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+                title="Run code (Cmd/Ctrl+Enter)"
+              >
+                {!execution.workerReady ? (
+                  <LoaderCircle size={16} className="spin" />
+                ) : (
+                  <Play size={16} fill="currentColor" />
+                )}
+                {execution.status === "loading"
+                  ? "Loading Python"
+                  : !execution.workerReady
+                    ? "Resetting"
+                    : "Run"}
+                <kbd>⌘↵</kbd>
+              </button>
+            </>
           )}
         </>
       }
@@ -305,6 +427,10 @@ function PlaygroundContent({
               }
               onRun={handleRun}
               resetToken={editorResetToken}
+              readOnly={isDebugActive}
+              breakpoints={breakpoints}
+              currentDebugLine={execution.debugPaused?.location.line ?? null}
+              onToggleBreakpoint={handleToggleBreakpoint}
             />
           </section>
           <ResizeHandle
@@ -361,6 +487,30 @@ function PlaygroundContent({
                 return next;
               })
             }
+            debugStatus={debugStatus}
+
+            debugPausedInfo={execution.debugPaused}
+            debuggerCollapsed={debuggerCollapsed}
+            onToggleDebuggerCollapse={() =>
+              setDebuggerCollapsed((collapsed) => {
+                const next = !collapsed;
+                persistDebuggerCollapsed(next);
+                return next;
+              })
+            }
+            debuggerHeightPercent={debuggerHeightPercent}
+            onDebuggerHeightChange={(percent) => {
+              setDebuggerHeightPercent(percent);
+              persistDebuggerHeight(percent);
+            }}
+            onDebugContinue={handleDebugContinue}
+            onDebugStepOver={handleDebugStepOver}
+            onDebugStepIn={handleDebugStepIn}
+            onDebugStepOut={handleDebugStepOut}
+            onDebugStop={handleDebugStop}
+            onSetVariable={execution.setVariable}
+            onSelectFrame={execution.selectFrame}
+            commandError={execution.debugCommandError}
           />
         </div>
       </main>
@@ -369,7 +519,7 @@ function PlaygroundContent({
         className="execution-frame"
         src={execution.iframeSrc}
         title="CodeBro Python execution host"
-        sandbox="allow-scripts allow-same-origin"
+        allow="cross-origin-isolated"
         onLoad={execution.initialize}
       />
       {autosave.conflict && (

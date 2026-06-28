@@ -1,6 +1,19 @@
 {
   "name": "codebro",
   "version": "0.1.0",
+  "description": "Local-first Python playground for coding interview and data structures and algorithms practice",
+  "keywords": [
+    "python",
+    "coding-interviews",
+    "data-structures",
+    "algorithms",
+    "dsa",
+    "leetcode",
+    "python-playground",
+    "windows",
+    "linux",
+    "local-first"
+  ],
   "private": true,
   "workspaces": [
     "frontend"

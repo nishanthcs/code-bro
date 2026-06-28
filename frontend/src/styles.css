@@ -19,6 +19,7 @@
   --primary-strong: #5635dc;
   --primary-soft: #eee9ff;
   --accent: #23c79f;
+  --accent-soft: #e9fbf6;
   --danger: #d94066;
   --danger-soft: #fff0f4;
   --shadow-sm: 0 8px 30px rgba(34, 40, 70, 0.07);
@@ -47,6 +48,7 @@
   --primary-strong: #b09dff;
   --primary-soft: #292342;
   --accent: #38d7af;
+  --accent-soft: #18362f;
   --danger: #ff6c8f;
   --danger-soft: #351d28;
   --shadow-sm: 0 10px 34px rgba(0, 0, 0, 0.24);
@@ -1981,6 +1983,299 @@ kbd {
     align-items: stretch;
     flex-wrap: wrap;
   }
+}
+
+.debug-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.debug-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.debug-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.debugger-entry-hint {
+  padding: 8px 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.debugger-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.debugger-panel--collapsed {
+  grid-template-rows: auto;
+}
+
+.debugger-panel--collapsed > *:not(.panel-heading) {
+  display: none;
+}
+
+.debugger-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.debugger-panel__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.debugger-panel__location {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--primary) 36%, var(--border));
+  border-radius: 999px;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.debugger-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.debugger-status-text--muted {
+  color: var(--text-tertiary);
+}
+
+.debug-btn {
+  gap: 5px;
+  font-size: 10.5px;
+}
+
+.debug-btn kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.debugger-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 12px 14px 14px;
+}
+
+.debugger-command-error {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border));
+  border-radius: 10px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.debugger-section-label {
+  margin-bottom: 6px;
+}
+
+.debugger-stack {
+  min-height: 0;
+}
+
+.debugger-stack__frames {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-y: auto;
+  background: var(--surface-muted);
+  list-style: none;
+}
+
+.debug-stack-frame {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.debug-stack-frame--active {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.debug-stack-frame__function {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.debug-stack-frame__location {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.debugger-variables {
+  min-height: 0;
+}
+
+.debugger-variables__scopes {
+  display: grid;
+  gap: 10px;
+}
+
+.debugger-scope {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.debugger-scope__title {
+  margin: 0;
+  padding: 8px 10px 3px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.debugger-variables__list {
+  margin: 0;
+  padding: 4px 10px 10px;
+  list-style: none;
+}
+
+.debug-variable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  font-family: "SFMono-Regular", Consolas, ui-monospace, monospace;
+}
+
+.debug-variable__name {
+  width: min(36%, 150px);
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.debug-variable__value {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.debug-variable__type {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
+.debug-variable__editor {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+}
+
+.debug-variable__edit-wrap {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.debug-variable__input {
+  min-width: 0;
+  flex: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, ui-monospace, monospace;
+  font-size: 11px;
+  outline: 0;
+}
+
+.debug-variable__input:focus {
+  border-color: var(--primary);
+}
+
+.debugger-empty {
+  margin: 0;
+  padding: 12px 10px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-align: center;
+}
+
+.error-text {
+  margin-top: 3px;
+  color: var(--danger);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-size: 10px;
+}
+
+.debugger-expensive {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

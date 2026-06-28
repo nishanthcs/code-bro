@@ -10,21 +10,25 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { useEffect, useRef, type CSSProperties } from "react";
-import { useVerticalPercentResize } from "../hooks/useDragResize";
 import {
   persistNotesHeight,
+  persistDebuggerHeight,
   persistStdinHeight,
+  DEBUGGER_HEIGHT_MAX,
+  DEBUGGER_HEIGHT_MIN,
   NOTES_HEIGHT_MAX,
   NOTES_HEIGHT_MIN,
   STDIN_HEIGHT_MAX,
   STDIN_HEIGHT_MIN,
 } from "../lib/preferences";
-import type { OutputFragment, RunStatus } from "../types";
+import type { DebugPausedInfo, OutputFragment, RunStatus } from "../types";
+import { useVerticalPercentResize } from "../hooks/useDragResize";
 import { ResizeHandle } from "./ResizeHandle";
 import {
   SessionNotesPanel,
   type SessionNotesPanelHandle,
 } from "./SessionNotesPanel";
+import { DebuggerPanel } from "./DebuggerPanel";
 
 function statusLabel(status: RunStatus, durationMs: number | null) {
   switch (status) {
@@ -34,6 +38,10 @@ function statusLabel(status: RunStatus, durationMs: number | null) {
       return "Ready";
     case "running":
       return "Running";
+    case "debug-running":
+      return "Running (debug)";
+    case "debug-paused":
+      return "Paused (debug)";
     case "resetting":
       return "Resetting Python";
     case "completed":
@@ -48,7 +56,7 @@ function statusLabel(status: RunStatus, durationMs: number | null) {
 }
 
 function StatusIcon({ status }: { status: RunStatus }) {
-  if (status === "loading" || status === "running" || status === "resetting") {
+  if (status === "loading" || status === "running" || status === "debug-running" || status === "resetting") {
     return <LoaderCircle size={14} className="spin" />;
   }
   if (status === "completed" || status === "ready") {
@@ -76,6 +84,20 @@ export function RunnerPanel({
   onNotesHeightChange,
   notesCollapsed,
   onToggleNotes,
+  debugStatus,
+  debugPausedInfo,
+  debuggerCollapsed,
+  onToggleDebuggerCollapse,
+  debuggerHeightPercent,
+  onDebuggerHeightChange,
+  onDebugContinue,
+  onDebugStepOver,
+  onDebugStepIn,
+  onDebugStepOut,
+  onDebugStop,
+  onSetVariable,
+  onSelectFrame,
+  commandError,
 }: {
   stdin: string;
   onStdinChange: (value: string) => void;
@@ -93,6 +115,20 @@ export function RunnerPanel({
   onNotesHeightChange: (percent: number) => void;
   notesCollapsed: boolean;
   onToggleNotes: () => void;
+  debugStatus: "idle" | "attaching" | "attached" | "detached" | "error";
+  debugPausedInfo: DebugPausedInfo | null;
+  debuggerCollapsed: boolean;
+  onToggleDebuggerCollapse: () => void;
+  debuggerHeightPercent: number;
+  onDebuggerHeightChange: (percent: number) => void;
+  onDebugContinue: () => void;
+  onDebugStepOver: () => void;
+  onDebugStepIn: () => void;
+  onDebugStepOut: () => void;
+  onDebugStop: () => void;
+  onSetVariable?: (pauseId: string, frameId: string, scope: "local" | "global", name: string, literal: string) => void;
+  onSelectFrame?: (frameId: string) => void;
+  commandError?: string | null;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const lowerRef = useRef<HTMLDivElement>(null);
@@ -116,6 +152,14 @@ export function RunnerPanel({
     onChange: onNotesHeightChange,
     onCommit: persistNotesHeight,
   });
+  const debuggerResize = useVerticalPercentResize({
+    containerRef: lowerRef,
+    min: DEBUGGER_HEIGHT_MIN,
+    max: DEBUGGER_HEIGHT_MAX,
+    reversed: true,
+    onChange: onDebuggerHeightChange,
+    onCommit: persistDebuggerHeight,
+  });
 
   useEffect(() => {
     if (previousStdinCollapsedRef.current === stdinCollapsed) return;
@@ -138,6 +182,13 @@ export function RunnerPanel({
     stdinCollapsed ? "runner-panel--stdin-collapsed" : "",
     notesCollapsed ? "runner-panel--notes-collapsed" : "runner-panel--notes-expanded",
   ].filter(Boolean).join(" ");
+  const lowerRows = [
+    "minmax(140px, 1fr)",
+    debuggerCollapsed
+      ? "auto"
+      : "auto minmax(180px, var(--debugger-height))",
+    notesCollapsed ? "auto" : "auto minmax(120px, var(--notes-height))",
+  ].join(" ");
 
   return (
     <aside
@@ -201,9 +252,11 @@ export function RunnerPanel({
         ref={lowerRef}
         className="runner-panel__lower"
         style={
-          notesCollapsed
-            ? { gridTemplateRows: "minmax(180px, 1fr) auto" } as CSSProperties
-            : { "--notes-height": `${notesHeightPercent}%` } as CSSProperties
+          {
+            gridTemplateRows: lowerRows,
+            "--debugger-height": `${debuggerHeightPercent}%`,
+            "--notes-height": `${notesHeightPercent}%`,
+          } as CSSProperties
         }
       >
         <section className="runner-card output-card">
@@ -231,7 +284,7 @@ export function RunnerPanel({
                 className="ghost-button ghost-button--small"
                 type="button"
                 onClick={onClear}
-                disabled={status === "running" || output.length === 0}
+                disabled={status === "running" || status === "debug-running" || output.length === 0}
               >
                 <Eraser size={14} />
                 Clear
@@ -262,6 +315,41 @@ export function RunnerPanel({
             {statusLabel(status, durationMs)}
           </div>
         </section>
+
+        {!debuggerCollapsed && (
+          <ResizeHandle
+            direction="vertical"
+            label="Resize output and debugger panels"
+            value={debuggerHeightPercent}
+            min={DEBUGGER_HEIGHT_MIN}
+            max={DEBUGGER_HEIGHT_MAX}
+            step={5}
+            onValueChange={onDebuggerHeightChange}
+            onValueCommit={persistDebuggerHeight}
+            onPointerDown={(event) =>
+              debuggerResize.handlePointerDown(event, debuggerHeightPercent)
+            }
+            onPointerMove={debuggerResize.handlePointerMove}
+            onPointerUp={debuggerResize.handlePointerUp}
+            onPointerCancel={debuggerResize.handlePointerCancel}
+          />
+        )}
+        <DebuggerPanel
+          debugStatus={debugStatus}
+          pausedInfo={debugPausedInfo}
+          collapsed={debuggerCollapsed}
+          onToggleCollapse={onToggleDebuggerCollapse}
+          onHeightChange={onDebuggerHeightChange}
+          onContinue={onDebugContinue}
+          onStepOver={onDebugStepOver}
+          onStepIn={onDebugStepIn}
+          onStepOut={onDebugStepOut}
+          onStop={onDebugStop}
+          onSetVariable={onSetVariable}
+          onSelectFrame={onSelectFrame}
+          commandError={commandError}
+        />
+
         {!notesCollapsed && (
           <ResizeHandle
             direction="vertical"

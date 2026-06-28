@@ -237,4 +237,341 @@ describe("execution bridge recovery", () => {
       ],
     ]);
   });
+
+  it("announces readiness and replies to duplicate initialize messages", async () => {
+    vi.useFakeTimers();
+    FakeWorker.instances = [];
+    window.history.replaceState(
+      {},
+      "",
+      "/?parentOrigin=http%3A%2F%2F127.0.0.1%3A5173",
+    );
+    vi.stubGlobal("Worker", FakeWorker);
+    const parentPostMessage = vi
+      .spyOn(window.parent, "postMessage")
+      .mockImplementation(() => undefined);
+
+    await import("./bridge.js?bridge-ready-handshake-test");
+
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "bridge-ready" }),
+      "http://127.0.0.1:5173",
+    );
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: { type: "initialize" },
+      }),
+    );
+    const firstWorker = FakeWorker.instances[0];
+    firstWorker.emitMessage({ type: "ready" });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: { type: "initialize" },
+      }),
+    );
+
+    const readyPosts = parentPostMessage.mock.calls.filter(
+      ([message]) => message.type === "ready",
+    );
+    expect(readyPosts).toHaveLength(2);
+    expect(FakeWorker.instances).toHaveLength(1);
+  });
+
+  it("keeps debug pauses interactive and reports ready after debug completion", async () => {
+    vi.useFakeTimers();
+    FakeWorker.instances = [];
+    window.history.replaceState(
+      {},
+      "",
+      "/?parentOrigin=http%3A%2F%2F127.0.0.1%3A5173",
+    );
+    vi.stubGlobal("Worker", FakeWorker);
+    const parentPostMessage = vi
+      .spyOn(window.parent, "postMessage")
+      .mockImplementation(() => undefined);
+
+    await import("./bridge.js?bridge-debug-lifecycle-test");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: { type: "initialize" },
+      }),
+    );
+    const normalWorker = FakeWorker.instances[0];
+    normalWorker.emitMessage({ type: "ready" });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: {
+          type: "debug-start",
+          debugId: "debug-1",
+          code: "x = 1\nprint(x)",
+          stdin: "",
+          breakpoints: [2],
+        },
+      }),
+    );
+    const debugWorker = FakeWorker.instances[1];
+    debugWorker.emitMessage({ type: "ready" });
+    expect(debugWorker.messages).toHaveLength(1);
+    expect(debugWorker.messages[0]).toMatchObject({
+      type: "run",
+      runId: "debug-1",
+      code: "x = 1\nprint(x)",
+      stdin: "",
+      debug: true,
+      breakpoints: [2],
+    });
+    expect(debugWorker.messages[0].sab).toBeInstanceOf(SharedArrayBuffer);
+
+    debugWorker.emitMessage({
+      type: "debug-paused",
+      runId: "debug-1",
+      pauseId: 1,
+      reason: "entry",
+      location: { file: "main.py", line: 1 },
+      stack: [],
+      scopes: [],
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(parentPostMessage).not.toHaveBeenCalledWith(
+      { type: "timed-out", runId: "debug-1" },
+      "http://127.0.0.1:5173",
+    );
+
+    debugWorker.emitMessage({
+      type: "completed",
+      runId: "debug-1",
+      durationMs: 24,
+    });
+    expect(debugWorker.terminated).toBe(true);
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      { type: "completed", runId: "debug-1", durationMs: 24 },
+      "http://127.0.0.1:5173",
+    );
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      { type: "ready" },
+      "http://127.0.0.1:5173",
+    );
+  });
+
+  it("terminates an active debug session when Stop Debug is requested", async () => {
+    vi.useFakeTimers();
+    FakeWorker.instances = [];
+    window.history.replaceState(
+      {},
+      "",
+      "/?parentOrigin=http%3A%2F%2F127.0.0.1%3A5173",
+    );
+    vi.stubGlobal("Worker", FakeWorker);
+    const parentPostMessage = vi
+      .spyOn(window.parent, "postMessage")
+      .mockImplementation(() => undefined);
+
+    await import("./bridge.js?bridge-debug-stop-test");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: { type: "initialize" },
+      }),
+    );
+    FakeWorker.instances[0].emitMessage({ type: "ready" });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: {
+          type: "debug-start",
+          debugId: "debug-stop",
+          code: "while True:\n    pass",
+          stdin: "",
+          breakpoints: [],
+        },
+      }),
+    );
+    const debugWorker = FakeWorker.instances[1];
+    debugWorker.emitMessage({ type: "ready" });
+    debugWorker.emitMessage({
+      type: "debug-paused",
+      runId: "debug-stop",
+      pauseId: 1,
+      reason: "entry",
+      location: { file: "main.py", line: 1 },
+      stack: [],
+      scopes: [],
+    });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: {
+          type: "debug-stop",
+          debugId: "debug-stop",
+        },
+      }),
+    );
+
+    expect(debugWorker.terminated).toBe(true);
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      { type: "stopped", runId: "debug-stop", workerReady: true },
+      "http://127.0.0.1:5173",
+    );
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      { type: "ready" },
+      "http://127.0.0.1:5173",
+    );
+  });
+
+  it("reports ready again when debug cannot allocate a SharedArrayBuffer", async () => {
+    vi.useFakeTimers();
+    FakeWorker.instances = [];
+    window.history.replaceState(
+      {},
+      "",
+      "/?parentOrigin=http%3A%2F%2F127.0.0.1%3A5173",
+    );
+    vi.stubGlobal("Worker", FakeWorker);
+    vi.stubGlobal("SharedArrayBuffer", undefined);
+    const parentPostMessage = vi
+      .spyOn(window.parent, "postMessage")
+      .mockImplementation(() => undefined);
+
+    await import("./bridge.js?bridge-debug-sab-failure-test");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: { type: "initialize" },
+      }),
+    );
+    FakeWorker.instances[0].emitMessage({ type: "ready" });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: {
+          type: "debug-start",
+          debugId: "debug-no-sab",
+          code: "print(1)",
+          stdin: "",
+          breakpoints: [],
+        },
+      }),
+    );
+
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      {
+        type: "failed",
+        runId: "debug-no-sab",
+        traceback:
+          "SharedArrayBuffer is not available. Please ensure cross-origin isolation is enabled (COOP/COEP headers).",
+      },
+      "http://127.0.0.1:5173",
+    );
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      { type: "ready" },
+      "http://127.0.0.1:5173",
+    );
+  });
+
+  it("writes debugger payload commands into the shared command buffer", async () => {
+    vi.useFakeTimers();
+    FakeWorker.instances = [];
+    window.history.replaceState(
+      {},
+      "",
+      "/?parentOrigin=http%3A%2F%2F127.0.0.1%3A5173",
+    );
+    vi.stubGlobal("Worker", FakeWorker);
+    vi.spyOn(window.parent, "postMessage").mockImplementation(() => undefined);
+
+    await import("./bridge.js?bridge-debug-command-payload-test");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: { type: "initialize" },
+      }),
+    );
+    FakeWorker.instances[0].emitMessage({ type: "ready" });
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: {
+          type: "debug-start",
+          debugId: "debug-payload",
+          code: "x = 1",
+          stdin: "",
+          breakpoints: [],
+        },
+      }),
+    );
+    const debugWorker = FakeWorker.instances[1];
+    debugWorker.emitMessage({ type: "ready" });
+    debugWorker.emitMessage({
+      type: "debug-paused",
+      runId: "debug-payload",
+      pauseId: 1,
+      reason: "entry",
+      location: { file: "main.py", line: 1 },
+      stack: [],
+      scopes: [],
+    });
+
+    const sab = debugWorker.messages[0].sab;
+    const view = new Int32Array(sab);
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "http://127.0.0.1:5173",
+        source: window.parent,
+        data: {
+          type: "debug-command",
+          debugId: "debug-payload",
+          commandId: "command-1",
+          command: {
+            type: "set-variable",
+            pauseId: "1",
+            frameId: "frame-1",
+            scope: "local",
+            name: "x",
+            literal: "40",
+          },
+        },
+      }),
+    );
+
+    expect(Atomics.load(view, 0)).toBe(7);
+    const payloadLength = Atomics.load(view, 4);
+    const payload = Array.from({ length: payloadLength }, (_, index) =>
+      String.fromCharCode(Atomics.load(view, 8 + index)),
+    ).join("");
+    expect(JSON.parse(payload)).toEqual({
+      type: "set-variable",
+      pauseId: "1",
+      frameId: "frame-1",
+      scope: "local",
+      name: "x",
+      literal: "40",
+      commandId: "command-1",
+    });
+  });
 });

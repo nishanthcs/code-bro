@@ -15,7 +15,7 @@ const assets = [
   "python_stdlib.zip",
   "pyodide-lock.json",
 ];
-const executionFiles = ["bridge.html", "bridge.js", "worker.js"];
+const executionFiles = ["bridge.html", "bridge.js", "worker.js", "debugger.py"];
 
 await rm(target, { recursive: true, force: true });
 await mkdir(target, { recursive: true });

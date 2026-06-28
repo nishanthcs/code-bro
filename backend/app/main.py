@@ -71,7 +71,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="CodeBro API", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.repository = repository
-
     @app.middleware("http")
     async def secure_local_api(request: Request, call_next):
         expected_host = urlsplit(settings.app_origin).netloc
@@ -91,6 +90,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Permissions-Policy"] = (
+            f'cross-origin-isolated=(self "{settings.execution_origin}")'
+        )
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self'; "

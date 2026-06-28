@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "codebro-backend"
 version = "0.1.0"
-description = "Local persistence and application controller for CodeBro"
+description = "Local persistence and application controller for the CodeBro Python coding interview playground"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.137.2",
