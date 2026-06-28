@@ -18,6 +18,20 @@ const baseProps = {
   onNotesHeightChange: vi.fn(),
   notesCollapsed: true,
   onToggleNotes: vi.fn(),
+  debugStatus: "idle" as const,
+  debugTarget: null,
+  attachDebug: vi.fn(),
+  detachDebug: vi.fn(),
+  debugPausedInfo: null,
+  debuggerCollapsed: true,
+  onToggleDebuggerCollapse: vi.fn(),
+  debuggerHeightPercent: 30,
+  onDebuggerHeightChange: vi.fn(),
+  onDebugContinue: vi.fn(),
+  onDebugStepOver: vi.fn(),
+  onDebugStepIn: vi.fn(),
+  onDebugStepOut: vi.fn(),
+  onDebugStop: vi.fn(),
 };
 
 describe("RunnerPanel", () => {

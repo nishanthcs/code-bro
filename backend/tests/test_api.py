@@ -21,6 +21,11 @@ def test_application_csp_disallows_framing(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+    assert response.headers["Cross-Origin-Opener-Policy"] == "same-origin"
+    assert response.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
+    assert "access-control-allow-origin" not in {
+        key.lower() for key in response.headers
+    }
 
 
 def test_settings_returns_resolved_read_only_data_path(client: TestClient) -> None:

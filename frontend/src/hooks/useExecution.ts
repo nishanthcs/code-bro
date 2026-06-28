@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { bootstrap } from "../lib/bootstrap";
-import type { OutputFragment, RunStatus } from "../types";
+import type { DebugPausedInfo, OutputFragment, RunStatus } from "../types";
 
 type ExecutionMessage =
+  | {
+      type: "bridge-ready";
+      bridgeId: string;
+      sharedArrayBufferAvailable?: boolean;
+      crossOriginIsolated?: boolean;
+    }
   | { type: "ready" }
   | { type: "resetting" }
   | { type: "output"; runId: string; fragments: OutputFragment[] }
   | { type: "completed"; runId: string; durationMs: number }
   | { type: "failed"; runId: string; traceback: string }
-  | { type: "stopped"; runId: string }
+  | { type: "stopped"; runId: string; workerReady?: boolean }
   | { type: "timed-out"; runId: string }
   | { type: "overflow"; runId: string; message: string }
-  | { type: "initialization_failed"; message: string };
+  | { type: "initialization_failed"; message: string }
+  | { type: "debug-paused"; runId: string; pauseId: number; reason: string; location: { file: string; line: number }; stack: unknown[]; scopes: unknown[] }
+  | { type: "debug-command-failed"; runId: string; commandId: string; message: string };
 
 function appendOutputFragments(
   current: OutputFragment[],
@@ -40,6 +48,26 @@ export function useExecution() {
   const [workerReady, setWorkerReady] = useState(false);
   const [output, setOutput] = useState<OutputFragment[]>([]);
   const [durationMs, setDurationMs] = useState<number | null>(null);
+  const [debugPaused, setDebugPaused] = useState<DebugPausedInfo | null>(null);
+  const [debugCommandError, setDebugCommandError] = useState<string | null>(null);
+  const debugIdRef = useRef<string | null>(null);
+
+  const post = useCallback((message: unknown) => {
+    iframeElementRef.current?.contentWindow?.postMessage(
+      message,
+      bootstrap.executionOrigin,
+    );
+  }, []);
+
+  const initialize = useCallback(() => {
+    activeRunRef.current = null;
+    debugIdRef.current = null;
+    setWorkerReady(false);
+    setDebugPaused(null);
+    setDebugCommandError(null);
+    setStatus("loading");
+    post({ type: "initialize" });
+  }, [post]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ExecutionMessage>) => {
@@ -53,6 +81,9 @@ export function useExecution() {
       if (!message || typeof message.type !== "string") return;
       if ("runId" in message && message.runId !== activeRunRef.current) return;
       switch (message.type) {
+        case "bridge-ready":
+          initialize();
+          break;
         case "ready":
           setWorkerReady(true);
           setStatus((current) =>
@@ -72,6 +103,8 @@ export function useExecution() {
           setWorkerReady(false);
           setDurationMs(message.durationMs);
           setStatus("completed");
+          setDebugPaused(null);
+          debugIdRef.current = null;
           activeRunRef.current = null;
           break;
         case "failed":
@@ -86,11 +119,15 @@ export function useExecution() {
             ]),
           );
           setStatus("failed");
+          setDebugPaused(null);
+          debugIdRef.current = null;
           activeRunRef.current = null;
           break;
         case "stopped":
-          setWorkerReady(false);
+          setWorkerReady(message.workerReady ?? false);
           setStatus("stopped");
+          setDebugPaused(null);
+          debugIdRef.current = null;
           activeRunRef.current = null;
           break;
         case "timed-out":
@@ -105,6 +142,8 @@ export function useExecution() {
             ]),
           );
           setStatus("timed-out");
+          setDebugPaused(null);
+          debugIdRef.current = null;
           activeRunRef.current = null;
           break;
         case "overflow":
@@ -119,6 +158,8 @@ export function useExecution() {
             ]),
           );
           setStatus("failed");
+          setDebugPaused(null);
+          debugIdRef.current = null;
           activeRunRef.current = null;
           break;
         case "initialization_failed":
@@ -132,50 +173,138 @@ export function useExecution() {
           ]);
           setStatus("failed");
           break;
+        case "debug-paused":
+          setDebugPaused({
+            debugId: message.runId,
+            pauseId: String(message.pauseId),
+            reason: message.reason as DebugPausedInfo["reason"],
+            location: message.location,
+            stack: message.stack as DebugPausedInfo["stack"],
+            scopes: message.scopes as DebugPausedInfo["scopes"],
+          });
+          setStatus("debug-paused");
+          break;
+        case "debug-command-failed":
+          setDebugCommandError(message.message);
+          break;
       }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
-
-  const post = useCallback((message: unknown) => {
-    iframeElementRef.current?.contentWindow?.postMessage(
-      message,
-      bootstrap.executionOrigin,
-    );
-  }, []);
-
-  const initialize = useCallback(() => {
-    setWorkerReady(false);
-    setStatus("loading");
-    post({ type: "initialize" });
-  }, [post]);
+  }, [initialize]);
 
   const setFrameElement = useCallback((node: HTMLIFrameElement | null) => {
     iframeElementRef.current = node;
   }, []);
 
+  const canRun =
+    workerReady &&
+    ["ready", "completed", "failed", "stopped", "timed-out"].includes(status);
+
   const run = useCallback(
     (code: string, stdin: string) => {
-      if (
-        !workerReady ||
-        !["ready", "completed", "failed", "stopped", "timed-out"].includes(status)
-      ) {
-        return;
-      }
+      if (!canRun) return;
       const runId = crypto.randomUUID();
       activeRunRef.current = runId;
       setOutput([]);
       setDurationMs(null);
+      setDebugPaused(null);
       setStatus("running");
       post({ type: "run", runId, code, stdin });
     },
-    [post, status, workerReady],
+    [canRun, post],
+  );
+
+  const startDebug = useCallback(
+    (code: string, stdin: string, breakpoints: number[]) => {
+      if (!canRun) return;
+      const debugId = crypto.randomUUID();
+      debugIdRef.current = debugId;
+      activeRunRef.current = debugId;
+      setOutput([]);
+      setDurationMs(null);
+      setDebugPaused(null);
+      setStatus("debug-running");
+      post({
+        type: "debug-start",
+        debugId,
+        code,
+        stdin,
+        breakpoints,
+      });
+    },
+    [canRun, post],
+  );
+
+  const sendDebugCommand = useCallback(
+    (command: string, breakpoints?: number[]) => {
+      const debugId = debugIdRef.current;
+      if (!debugId) return;
+      setDebugCommandError(null);
+      if (command === "stop" || command === "continue" || command === "step-in" || command === "step-over" || command === "step-out") {
+        if (command !== "stop") {
+          setStatus("debug-running");
+        }
+        setDebugPaused(null);
+        post({ type: "debug-command", debugId, command });
+      } else if (command === "update-breakpoints" && breakpoints) {
+        post({ type: "debug-command", debugId, command: "update-breakpoints", breakpoints });
+      }
+    },
+    [post],
+  );
+
+  const setVariable = useCallback(
+    (pauseId: string, frameId: string, scope: "local" | "global", name: string, literal: string) => {
+      const debugId = debugIdRef.current;
+      if (!debugId) return;
+      setDebugCommandError(null);
+      const commandId = crypto.randomUUID();
+      post({
+        type: "debug-command",
+        debugId,
+        commandId,
+        command: {
+          type: "set-variable",
+          pauseId,
+          frameId,
+          scope,
+          name,
+          literal,
+        },
+      });
+    },
+    [post],
+  );
+
+  const selectFrame = useCallback(
+    (frameId: string) => {
+      const debugId = debugIdRef.current;
+      if (!debugId) return;
+      setDebugCommandError(null);
+      post({
+        type: "debug-command",
+        debugId,
+        command: {
+          type: "select-frame",
+          frameId,
+        },
+      });
+    },
+    [post],
   );
 
   const stop = useCallback(() => {
-    if (!activeRunRef.current) return;
-    post({ type: "stop", runId: activeRunRef.current });
+    const runId = activeRunRef.current;
+    if (!runId) return;
+    const debugId = debugIdRef.current;
+    if (debugId) {
+      setDebugCommandError(null);
+      setDebugPaused(null);
+      post({ type: "debug-stop", debugId });
+    } else {
+      post({ type: "stop", runId });
+    }
   }, [post]);
 
   return {
@@ -185,8 +314,14 @@ export function useExecution() {
     workerReady,
     output,
     durationMs,
+    debugPaused,
+    debugCommandError,
     initialize,
     run,
+    startDebug,
+    sendDebugCommand,
+    setVariable,
+    selectFrame,
     stop,
     clearOutput: () => setOutput([]),
   };

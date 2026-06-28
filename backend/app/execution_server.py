@@ -31,9 +31,12 @@ def create_execution_app(settings: Settings | None = None) -> FastAPI:
             "style-src 'self'; "
             f"frame-ancestors {settings.app_origin}"
         )
-        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        response.headers["Permissions-Policy"] = "cross-origin-isolated=(self)"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.get("/bridge.html")
@@ -50,6 +53,12 @@ def create_execution_app(settings: Settings | None = None) -> FastAPI:
     async def worker_js() -> FileResponse:
         return FileResponse(
             settings.execution_dist / "worker.js", media_type="text/javascript"
+        )
+
+    @app.get("/debugger.py")
+    async def debugger_py() -> FileResponse:
+        return FileResponse(
+            settings.execution_dist / "debugger.py", media_type="text/x-python"
         )
 
     @app.get("/pyodide/{asset:path}")
