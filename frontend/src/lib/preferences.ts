@@ -1,3 +1,7 @@
+export const NOTES_FONT_SIZES = [12, 14, 16, 18, 20, 22] as const;
+export type NotesFontSize = (typeof NOTES_FONT_SIZES)[number];
+export const DEFAULT_NOTES_FONT_SIZE: NotesFontSize = 14;
+
 export const EDITOR_FONT_SIZES = [12, 13, 14, 16, 18] as const;
 
 export type EditorFontSize = (typeof EDITOR_FONT_SIZES)[number];
@@ -47,6 +51,7 @@ const STORAGE_KEYS = {
   stdinCollapsed: "codebro-stdin-collapsed",
   notesHeight: "codebro-notes-height",
   notesCollapsed: "codebro-notes-collapsed",
+  notesFontSize: "codebro-notes-font-size",
   editorCursorPrefix: "codebro-editor-cursor:",
 } as const;
 
@@ -209,4 +214,27 @@ export function stepEditorFontSize(
     return EDITOR_FONT_SIZES[Math.min(index + 1, EDITOR_FONT_SIZES.length - 1)];
   }
   return EDITOR_FONT_SIZES[Math.max(index - 1, 0)];
+}
+
+export function initialNotesFontSize(): NotesFontSize {
+  const stored = readNumber(STORAGE_KEYS.notesFontSize);
+  if (stored !== null && NOTES_FONT_SIZES.includes(stored as NotesFontSize)) {
+    return stored as NotesFontSize;
+  }
+  return DEFAULT_NOTES_FONT_SIZE;
+}
+
+export function persistNotesFontSize(size: NotesFontSize): void {
+  safeStorage()?.setItem(STORAGE_KEYS.notesFontSize, String(size));
+}
+
+export function stepNotesFontSize(
+  current: NotesFontSize,
+  direction: "up" | "down",
+): NotesFontSize {
+  const index = NOTES_FONT_SIZES.indexOf(current);
+  if (direction === "up") {
+    return NOTES_FONT_SIZES[Math.min(index + 1, NOTES_FONT_SIZES.length - 1)];
+  }
+  return NOTES_FONT_SIZES[Math.max(index - 1, 0)];
 }

@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { RunnerPanel } from "./RunnerPanel";
 
 const baseProps = {
@@ -18,6 +19,14 @@ const baseProps = {
   onNotesHeightChange: vi.fn(),
   notesCollapsed: true,
   onToggleNotes: vi.fn(),
+  notesFullscreen: false,
+  onToggleNotesFullscreen: vi.fn(),
+  notesMode: "edit" as const,
+  onNotesModeChange: vi.fn(),
+  notesFontSize: 14 as const,
+  onIncreaseNotesFontSize: vi.fn(),
+  onDecreaseNotesFontSize: vi.fn(),
+  notesFullscreenButtonRef: createRef<HTMLButtonElement>(),
 };
 
 describe("RunnerPanel", () => {

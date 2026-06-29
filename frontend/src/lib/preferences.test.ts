@@ -3,14 +3,17 @@ import {
   initialEditorCursor,
   initialEditorFontSize,
   initialEditorTheme,
+  initialNotesFontSize,
   initialRunnerWidth,
   initialStdinCollapsed,
   initialStdinHeight,
   persistEditorCursor,
+  persistNotesFontSize,
   persistRunnerWidth,
   persistStdinCollapsed,
   persistStdinHeight,
   stepEditorFontSize,
+  stepNotesFontSize,
 } from "./preferences";
 
 describe("preferences", () => {
@@ -96,5 +99,29 @@ describe("preferences", () => {
       anchor: 8,
       head: 10,
     });
+  });
+
+  it("uses default notes font size when storage is empty", () => {
+    expect(initialNotesFontSize()).toBe(14);
+  });
+
+  it("persists and restores notes font size", () => {
+    persistNotesFontSize(18);
+    expect(initialNotesFontSize()).toBe(18);
+  });
+
+  it("falls back to default for invalid stored notes font size", () => {
+    storage.setItem("codebro-notes-font-size", "999");
+    expect(initialNotesFontSize()).toBe(14);
+  });
+
+  it("steps notes font size up", () => {
+    expect(stepNotesFontSize(14, "up")).toBe(16);
+    expect(stepNotesFontSize(22, "up")).toBe(22);
+  });
+
+  it("steps notes font size down", () => {
+    expect(stepNotesFontSize(14, "down")).toBe(12);
+    expect(stepNotesFontSize(12, "down")).toBe(12);
   });
 });

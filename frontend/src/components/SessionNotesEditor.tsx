@@ -7,37 +7,11 @@ import {
   useRef,
   useState,
 } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { SessionNotesPreview } from "./SessionNotesPreview";
+import type { SessionNotesMode } from "../types";
+import type { NotesFontSize } from "../lib/preferences";
 
 const MAX_NOTES_BYTES = 128 * 1_024;
-const ALLOWED_MARKDOWN_ELEMENTS = [
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "p",
-  "ul",
-  "ol",
-  "li",
-  "blockquote",
-  "strong",
-  "em",
-  "code",
-  "pre",
-  "hr",
-  "a",
-  "table",
-  "thead",
-  "tbody",
-  "tr",
-  "th",
-  "td",
-  "del",
-  "input",
-];
 
 function wrapSelection(
   textarea: HTMLTextAreaElement,
@@ -79,30 +53,20 @@ function prefixCurrentLine(
   return nextValue;
 }
 
-const safeComponents: Components = {
-  a: ({ href, children, ...props }) => (
-    <a
-      {...props}
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={href}
-    >
-      {children}
-    </a>
-  ),
-  img: () => null,
-};
-
 export interface SessionNotesEditorHandle {
   focus: () => void;
 }
 
 export const SessionNotesEditor = forwardRef<
   SessionNotesEditorHandle,
-  { value: string; onChange: (value: string) => void }
->(function SessionNotesEditor({ value, onChange }, ref) {
-  const [mode, setMode] = useState<"edit" | "preview">("edit");
+  {
+    value: string;
+    onChange: (value: string) => void;
+    mode: SessionNotesMode;
+    onModeChange: (mode: SessionNotesMode) => void;
+    notesFontSize: NotesFontSize;
+  }
+>(function SessionNotesEditor({ value, onChange, mode, onModeChange, notesFontSize }, ref) {
   const [error, setError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -206,7 +170,7 @@ export const SessionNotesEditor = forwardRef<
           <button
             type="button"
             className={`notes-editor__tab ${mode === "edit" ? "notes-editor__tab--active" : ""}`}
-            onClick={() => setMode("edit")}
+            onClick={() => onModeChange("edit")}
             aria-pressed={mode === "edit"}
           >
             <Pilcrow size={13} />
@@ -215,7 +179,7 @@ export const SessionNotesEditor = forwardRef<
           <button
             type="button"
             className={`notes-editor__tab ${mode === "preview" ? "notes-editor__tab--active" : ""}`}
-            onClick={() => setMode("preview")}
+            onClick={() => onModeChange("preview")}
             aria-pressed={mode === "preview"}
           >
             <Pilcrow size={13} />
@@ -241,20 +205,12 @@ export const SessionNotesEditor = forwardRef<
           autoCorrect="off"
         />
       ) : (
-        <div className="notes-editor__preview" aria-label="Notes preview">
-          {value.trim() ? (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={safeComponents}
-              allowedElements={ALLOWED_MARKDOWN_ELEMENTS}
-              skipHtml
-            >
-              {value}
-            </ReactMarkdown>
-          ) : (
-            <span className="notes-editor__placeholder">No notes yet</span>
-          )}
-        </div>
+        <SessionNotesPreview
+          value={value}
+          className="notes-editor__preview"
+          ariaLabel="Notes preview"
+          fontSize={notesFontSize}
+        />
       )}
     </div>
   );

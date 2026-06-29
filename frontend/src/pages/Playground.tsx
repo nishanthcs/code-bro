@@ -28,6 +28,7 @@ import { ConflictDialog } from "../components/ConflictDialog";
 import { EditorSettings } from "../components/EditorSettings";
 import { ResizeHandle } from "../components/ResizeHandle";
 import { RunnerPanel } from "../components/RunnerPanel";
+import { SessionNotesFullscreen } from "../components/SessionNotesFullscreen";
 import {
   SessionMetadataPanel,
   type SessionMetadataPanelHandle,
@@ -38,19 +39,23 @@ import { getSession } from "../lib/api";
 import {
   clampRunnerWidth,
   initialNotesCollapsed,
+  initialNotesFontSize,
   initialNotesHeight,
   initialStdinCollapsed,
   initialRunnerWidth,
   initialStdinHeight,
   persistNotesCollapsed,
+  persistNotesFontSize,
   persistStdinCollapsed,
   persistRunnerWidth,
   RUNNER_WIDTH_MAX_RATIO,
   RUNNER_WIDTH_MIN,
+  stepNotesFontSize,
+  type NotesFontSize,
 } from "../lib/preferences";
 import { useAutosave } from "../hooks/useAutosave";
 import { useExecution } from "../hooks/useExecution";
-import type { SaveStatus, SessionResource } from "../types";
+import type { SaveStatus, SessionNotesMode, SessionResource } from "../types";
 
 function SaveIndicator({ status }: { status: SaveStatus }) {
   const content = {
@@ -90,7 +95,17 @@ function PlaygroundContent({
   const [stdinHeightPercent, setStdinHeightPercent] = useState(initialStdinHeight);
   const [stdinCollapsed, setStdinCollapsed] = useState(initialStdinCollapsed);
   const [notesHeightPercent, setNotesHeightPercent] = useState(initialNotesHeight);
-  const [notesCollapsed, setNotesCollapsed] = useState(initialNotesCollapsed);
+  const [notesCollapsed, setNotesCollapsed] = useState(() => {
+    const hasExistingNotes = session.notes_markdown.trim().length > 0;
+    return hasExistingNotes ? false : initialNotesCollapsed();
+  });
+  const [notesMode, setNotesMode] = useState<SessionNotesMode>(() => {
+    const hasExistingNotes = session.notes_markdown.trim().length > 0;
+    return hasExistingNotes ? "preview" : "edit";
+  });
+  const [notesFullscreen, setNotesFullscreen] = useState(false);
+  const [notesFontSize, setNotesFontSize] = useState<NotesFontSize>(initialNotesFontSize);
+  const notesFullscreenButtonRef = useRef<HTMLButtonElement | null>(null);
   const [editorResetToken, setEditorResetToken] = useState(0);
   const sessionNameRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +200,22 @@ function PlaygroundContent({
     return () =>
       window.removeEventListener("keydown", handlePlaygroundShortcut);
   }, [autosave, handleRun, expandAndFocusTags]);
+
+  const increaseNotesFontSize = useCallback(() => {
+    setNotesFontSize((current) => {
+      const next = stepNotesFontSize(current, "up");
+      persistNotesFontSize(next);
+      return next;
+    });
+  }, []);
+
+  const decreaseNotesFontSize = useCallback(() => {
+    setNotesFontSize((current) => {
+      const next = stepNotesFontSize(current, "down");
+      persistNotesFontSize(next);
+      return next;
+    });
+  }, []);
 
   return (
     <AppShell
@@ -361,6 +392,14 @@ function PlaygroundContent({
                 return next;
               })
             }
+            notesFullscreen={notesFullscreen}
+            onToggleNotesFullscreen={() => setNotesFullscreen((v) => !v)}
+            notesMode={notesMode}
+            onNotesModeChange={setNotesMode}
+            notesFontSize={notesFontSize}
+            onIncreaseNotesFontSize={increaseNotesFontSize}
+            onDecreaseNotesFontSize={decreaseNotesFontSize}
+            notesFullscreenButtonRef={notesFullscreenButtonRef}
           />
         </div>
       </main>
@@ -382,6 +421,22 @@ function PlaygroundContent({
           }}
         />
       )}
+      <SessionNotesFullscreen
+        open={notesFullscreen}
+        notesMarkdown={autosave.draft.notes_markdown}
+        onNotesMarkdownChange={(markdown) =>
+          autosave.setDraft((current) => ({ ...current, notes_markdown: markdown }))
+        }
+        fontSize={notesFontSize}
+        onIncreaseFontSize={increaseNotesFontSize}
+        onDecreaseFontSize={decreaseNotesFontSize}
+        mode={notesMode}
+        onModeChange={setNotesMode}
+        onClose={() => {
+          setNotesFullscreen(false);
+        }}
+        returnFocusRef={notesFullscreenButtonRef}
+      />
     </AppShell>
   );
 }
