@@ -353,6 +353,38 @@ a {
   font-weight: 700;
 }
 
+.session-date-field {
+  display: flex;
+  height: 46px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.session-date-field:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+}
+
+.session-date-field input {
+  min-width: 128px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+}
+
 kbd {
   padding: 2px 6px;
   border: 1px solid var(--border-strong);

@@ -213,6 +213,7 @@ class SessionRepository:
         *,
         sort: str = "updated_desc",
         updated_after: str | None = None,
+        updated_before: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         if sort not in SESSION_SORTS:
             raise ValueError("Invalid session sort")
@@ -234,6 +235,9 @@ class SessionRepository:
         if updated_after:
             where.append("s.updated_at >= ?")
             params.append(updated_after)
+        if updated_before:
+            where.append("s.updated_at <= ?")
+            params.append(updated_before)
         if cursor:
             sort_value, session_id = decode_cursor(cursor, sort)
             where.append(

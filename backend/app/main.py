@@ -146,23 +146,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             pattern="^(updated_desc|updated_asc|created_desc|name_asc)$",
         ),
         updated_after: datetime | None = None,
+        updated_before: datetime | None = None,
     ) -> SessionListResponse:
         try:
-            normalized_updated_after = None
-            if updated_after is not None:
-                if updated_after.tzinfo is None:
-                    updated_after = updated_after.replace(tzinfo=UTC)
-                normalized_updated_after = (
-                    updated_after.astimezone(UTC)
+            def normalize_datetime(value: datetime | None) -> str | None:
+                if value is None:
+                    return None
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=UTC)
+                return (
+                    value.astimezone(UTC)
                     .isoformat(timespec="milliseconds")
                     .replace("+00:00", "Z")
                 )
+
             items, next_cursor = repository.list_sessions(
                 q,
                 limit,
                 cursor,
                 sort=sort,
-                updated_after=normalized_updated_after,
+                updated_after=normalize_datetime(updated_after),
+                updated_before=normalize_datetime(updated_before),
             )
         except ValueError as error:
             return error_response("invalid_cursor", str(error), 422)

@@ -8,6 +8,13 @@ const artifacts = resolve(root, "artifacts");
 const baseUrl = process.env.CODEBRO_BASE_URL ?? "http://127.0.0.1:5173";
 await mkdir(artifacts, { recursive: true });
 
+function localDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const browser = await chromium.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   headless: true,
@@ -270,6 +277,12 @@ try {
   if (!(await dashboardReference.textContent()).includes("example.com/docs")) {
     throw new Error("The dashboard did not shorten the Reference URL.");
   }
+  const today = localDateInputValue(new Date());
+  await page.getByLabel("Updated from date").fill(today);
+  await page.getByLabel("Updated to date").fill(today);
+  await page.getByText("Keyboard Smoke").first().waitFor();
+  await page.getByRole("button", { name: "Clear dates" }).click();
+  await page.getByRole("combobox", { name: "Filter by updated date" }).waitFor();
 
   await page.getByRole("button", { name: "New session" }).click();
   await page.getByRole("textbox", { name: "Session name" }).fill("Existing Tag Smoke");

@@ -32,6 +32,10 @@ type SessionSort =
   | "created_desc"
   | "name_asc";
 type DateRange = "all" | "today" | "7d" | "30d";
+const SESSION_ROW_ESTIMATED_HEIGHT = 86;
+const SESSION_LIST_CHROME_ESTIMATED_HEIGHT = 330;
+const SESSION_PAGE_SIZE_MIN = 4;
+const SESSION_PAGE_SIZE_MAX = 100;
 
 const SESSION_SORTS: { value: SessionSort; label: string }[] = [
   { value: "updated_desc", label: "Recently updated" },
@@ -66,6 +70,63 @@ function dateThreshold(range: DateRange): string | null {
   return threshold.toISOString();
 }
 
+function localDateParts(value: string): [number, number, number] | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return [year, month, day];
+}
+
+function startOfLocalDateIso(value: string): string | null {
+  const parts = localDateParts(value);
+  if (!parts) return null;
+  const [year, month, day] = parts;
+  return new Date(year, month - 1, day, 0, 0, 0, 0).toISOString();
+}
+
+function endOfLocalDateIso(value: string): string | null {
+  const parts = localDateParts(value);
+  if (!parts) return null;
+  const [year, month, day] = parts;
+  return new Date(year, month - 1, day, 23, 59, 59, 999).toISOString();
+}
+
+function laterIso(...values: (string | null)[]): string | null {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+}
+
+function calculateSessionPageLimit(): number {
+  const availableHeight = Math.max(
+    SESSION_ROW_ESTIMATED_HEIGHT,
+    window.innerHeight - SESSION_LIST_CHROME_ESTIMATED_HEIGHT,
+  );
+  const visibleRows = Math.floor(availableHeight / SESSION_ROW_ESTIMATED_HEIGHT);
+  return Math.min(
+    Math.max(visibleRows, SESSION_PAGE_SIZE_MIN),
+    SESSION_PAGE_SIZE_MAX,
+  );
+}
+
+function isNearDocumentEnd(): boolean {
+  const documentElement = document.documentElement;
+  const scrollHeight = Math.max(
+    documentElement.scrollHeight,
+    document.body?.scrollHeight ?? 0,
+  );
+  const viewportBottom = window.scrollY + window.innerHeight;
+  return scrollHeight <= window.innerHeight + 1 || viewportBottom >= scrollHeight - 160;
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -93,7 +154,36 @@ export function SessionLibrary() {
     const value = searchParams.get("date");
     return isDateRange(value) ? value : "all";
   });
-  const updatedAfter = useMemo(() => dateThreshold(dateRange), [dateRange]);
+  const [fromDate, setFromDate] = useState(searchParams.get("from") ?? "");
+  const [toDate, setToDate] = useState(searchParams.get("to") ?? "");
+  const quickUpdatedAfter = useMemo(() => dateThreshold(dateRange), [dateRange]);
+  const customUpdatedAfter = useMemo(
+    () => startOfLocalDateIso(fromDate),
+    [fromDate],
+  );
+  const updatedAfter = useMemo(
+    () => laterIso(quickUpdatedAfter, customUpdatedAfter),
+    [customUpdatedAfter, quickUpdatedAfter],
+  );
+  const updatedBefore = useMemo(() => endOfLocalDateIso(toDate), [toDate]);
+  const dateFilterError = useMemo(() => {
+    if (fromDate && !customUpdatedAfter) return "Choose a valid From date.";
+    if (toDate && !updatedBefore) return "Choose a valid To date.";
+    if (
+      customUpdatedAfter &&
+      updatedBefore &&
+      Date.parse(customUpdatedAfter) > Date.parse(updatedBefore)
+    ) {
+      return "From date must be on or before To date.";
+    }
+    return "";
+  }, [customUpdatedAfter, fromDate, toDate, updatedBefore]);
+  const hasActiveFilters =
+    Boolean(query.trim()) ||
+    dateRange !== "all" ||
+    Boolean(fromDate) ||
+    Boolean(toDate);
+  const [pageLimit, setPageLimit] = useState(calculateSessionPageLimit);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -114,6 +204,7 @@ export function SessionLibrary() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const generationRef = useRef(0);
+  const hasUserScrolledRef = useRef(false);
   const listControllersRef = useRef(new Set<AbortController>());
   const requestedCursorsRef = useRef(new Set<string>());
   const createMutationIdRef = useRef<string | null>(null);
@@ -146,6 +237,8 @@ export function SessionLibrary() {
     generation: number,
     nextSort: SessionSort,
     nextUpdatedAfter: string | null,
+    nextUpdatedBefore: string | null,
+    nextLimit: number,
   ) => {
     const requestKey = nextCursor ?? "__first_page__";
     if (
@@ -164,7 +257,12 @@ export function SessionLibrary() {
         nextQuery,
         nextCursor,
         controller.signal,
-        { sort: nextSort, updatedAfter: nextUpdatedAfter },
+        {
+          limit: nextLimit,
+          sort: nextSort,
+          updatedAfter: nextUpdatedAfter,
+          updatedBefore: nextUpdatedBefore,
+        },
       );
       if (
         controller.signal.aborted ||
@@ -213,13 +311,22 @@ export function SessionLibrary() {
       for (const controller of listControllersRef.current) controller.abort();
       listControllersRef.current.clear();
       requestedCursorsRef.current.clear();
+      hasUserScrolledRef.current = false;
       setSessions([]);
       setSelectedSessionIds(new Set());
       setCursor(null);
       setLoading(true);
-      void load(nextQuery, null, generation, sort, updatedAfter);
+      void load(
+        nextQuery,
+        null,
+        generation,
+        sort,
+        updatedAfter,
+        updatedBefore,
+        pageLimit,
+      );
     },
-    [load, sort, updatedAfter],
+    [load, pageLimit, sort, updatedAfter, updatedBefore],
   );
 
   useEffect(() => {
@@ -228,17 +335,31 @@ export function SessionLibrary() {
       if (query.trim()) nextParams.q = query.trim();
       if (sort !== "updated_desc") nextParams.sort = sort;
       if (dateRange !== "all") nextParams.date = dateRange;
+      if (fromDate) nextParams.from = fromDate;
+      if (toDate) nextParams.to = toDate;
       setSearchParams(nextParams, { replace: true });
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [dateRange, query, setSearchParams, sort]);
+  }, [dateRange, fromDate, query, setSearchParams, sort, toDate]);
 
   useEffect(() => {
     generationRef.current += 1;
     for (const controller of listControllersRef.current) controller.abort();
     listControllersRef.current.clear();
     requestedCursorsRef.current.clear();
+    hasUserScrolledRef.current = false;
     const generation = generationRef.current;
+    if (dateFilterError) {
+      queueMicrotask(() => {
+        if (generation !== generationRef.current) return;
+        setSessions([]);
+        setSelectedSessionIds(new Set());
+        setCursor(null);
+        setLoading(false);
+        setError(dateFilterError);
+      });
+      return;
+    }
     queueMicrotask(() => {
       if (generation !== generationRef.current) return;
       setSessions([]);
@@ -247,10 +368,35 @@ export function SessionLibrary() {
       setLoading(true);
     });
     const timer = window.setTimeout(() => {
-      void load(query, null, generation, sort, updatedAfter);
+      void load(
+        query,
+        null,
+        generation,
+        sort,
+        updatedAfter,
+        updatedBefore,
+        pageLimit,
+      );
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [dateRange, load, query, sort, updatedAfter]);
+  }, [
+    dateFilterError,
+    dateRange,
+    load,
+    pageLimit,
+    query,
+    sort,
+    updatedAfter,
+    updatedBefore,
+  ]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setPageLimit(calculateSessionPageLimit());
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     const listControllers = listControllersRef.current;
@@ -269,22 +415,59 @@ export function SessionLibrary() {
   }, []);
 
   useEffect(() => {
+    const loadNextCursorPage = () => {
+      if (!cursor) return;
+      void load(
+        query,
+        cursor,
+        generationRef.current,
+        sort,
+        updatedAfter,
+        updatedBefore,
+        pageLimit,
+      );
+    };
+    const handleScroll = () => {
+      if (window.scrollY > 0) {
+        hasUserScrolledRef.current = true;
+      }
+      if (isNearDocumentEnd()) {
+        hasUserScrolledRef.current = true;
+        loadNextCursorPage();
+      }
+    };
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY <= 0 || !isNearDocumentEnd()) return;
+      hasUserScrolledRef.current = true;
+      loadNextCursorPage();
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("wheel", handleWheel, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, [cursor, load, pageLimit, query, sort, updatedAfter, updatedBefore]);
+
+  useEffect(() => {
     const node = sentinelRef.current;
     if (!node || !cursor) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) {
+      if (entries[0]?.isIntersecting && hasUserScrolledRef.current) {
         void load(
           query,
           cursor,
           generationRef.current,
           sort,
           updatedAfter,
+          updatedBefore,
+          pageLimit,
         );
       }
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [cursor, load, query, sort, updatedAfter]);
+  }, [cursor, load, pageLimit, query, sort, updatedAfter, updatedBefore]);
 
   const handleCreate = useCallback(async () => {
     if (creating || createControllerRef.current) return;
@@ -647,6 +830,37 @@ export function SessionLibrary() {
                 ))}
               </select>
             </label>
+            <label className="session-date-field">
+              <span>From</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                aria-label="Updated from date"
+              />
+            </label>
+            <label className="session-date-field">
+              <span>To</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+                aria-label="Updated to date"
+              />
+            </label>
+            {(dateRange !== "all" || fromDate || toDate) && (
+              <button
+                className="ghost-button ghost-button--small"
+                type="button"
+                onClick={() => {
+                  setDateRange("all");
+                  setFromDate("");
+                  setToDate("");
+                }}
+              >
+                Clear dates
+              </button>
+            )}
           </div>
 
           {error && <div className="inline-error">{error}</div>}
@@ -663,12 +877,12 @@ export function SessionLibrary() {
                 <Code2 size={27} />
               </span>
               <h3>
-                {query || dateRange !== "all"
+                {hasActiveFilters
                   ? "No matching sessions"
                   : "No sessions yet"}
               </h3>
               <p>
-                {query || dateRange !== "all"
+                {hasActiveFilters
                   ? "Change the search or date filter and try again."
                   : "Create a session to start writing Python."}
               </p>
@@ -834,7 +1048,7 @@ export function SessionLibrary() {
             </div>
           </>)}
           <div ref={sentinelRef} className="pagination-sentinel">
-            {cursor ? "Loading more…" : sessions.length ? "You’re all caught up." : ""}
+            {cursor ? "Scroll for more…" : sessions.length ? "You’re all caught up." : ""}
           </div>
         </section>
       </main>

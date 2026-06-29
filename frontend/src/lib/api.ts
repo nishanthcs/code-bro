@@ -88,16 +88,23 @@ export function listSessions(
   cursor?: string | null,
   signal?: AbortSignal,
   options?: {
+    limit?: number;
     sort?: "updated_desc" | "updated_asc" | "created_desc" | "name_asc";
     updatedAfter?: string | null;
+    updatedBefore?: string | null;
   },
 ): Promise<SessionListResponse> {
-  const params = new URLSearchParams({ limit: "50" });
+  const params = new URLSearchParams({
+    limit: String(options?.limit ?? 50),
+  });
   if (query.trim()) params.set("q", query.trim());
   if (cursor) params.set("cursor", cursor);
   if (options?.sort) params.set("sort", options.sort);
   if (options?.updatedAfter) {
     params.set("updated_after", options.updatedAfter);
+  }
+  if (options?.updatedBefore) {
+    params.set("updated_before", options.updatedBefore);
   }
   return request(`/api/v1/sessions?${params.toString()}`, { signal });
 }

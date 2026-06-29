@@ -150,6 +150,14 @@ function renderLibrary() {
 describe("SessionLibrary data operations", () => {
   beforeEach(() => {
     MockIntersectionObserver.instances = [];
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 760,
+    });
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      value: 0,
+    });
     vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
     mockedCreateSession.mockReset();
     mockedDeleteSession.mockReset();
@@ -208,7 +216,21 @@ describe("SessionLibrary data operations", () => {
       observer.trigger();
       observer.trigger();
     });
+    expect(mockedListSessions).toHaveBeenCalledTimes(1);
+
+    fireEvent.wheel(window, { deltaY: 120 });
     await waitFor(() => expect(mockedListSessions).toHaveBeenCalledTimes(2));
+    expect(mockedListSessions).toHaveBeenLastCalledWith(
+      "",
+      "cursor-1",
+      expect.any(AbortSignal),
+      {
+        limit: 5,
+        sort: "updated_desc",
+        updatedAfter: null,
+        updatedBefore: null,
+      },
+    );
 
     act(() => {
       nextPage.resolve(
@@ -258,7 +280,12 @@ describe("SessionLibrary data operations", () => {
         "",
         null,
         expect.any(AbortSignal),
-        { sort: "updated_asc", updatedAfter: null },
+        {
+          limit: 5,
+          sort: "updated_asc",
+          updatedAfter: null,
+          updatedBefore: null,
+        },
       ),
     );
 
@@ -272,8 +299,31 @@ describe("SessionLibrary data operations", () => {
         null,
         expect.any(AbortSignal),
         {
+          limit: 5,
           sort: "updated_asc",
           updatedAfter: expect.stringMatching(/Z$/),
+          updatedBefore: null,
+        },
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear dates" }));
+    fireEvent.change(screen.getByLabelText("Updated from date"), {
+      target: { value: "2026-06-01" },
+    });
+    fireEvent.change(screen.getByLabelText("Updated to date"), {
+      target: { value: "2026-06-20" },
+    });
+    await waitFor(() =>
+      expect(mockedListSessions).toHaveBeenLastCalledWith(
+        "",
+        null,
+        expect.any(AbortSignal),
+        {
+          limit: 5,
+          sort: "updated_asc",
+          updatedAfter: expect.any(String),
+          updatedBefore: expect.any(String),
         },
       ),
     );

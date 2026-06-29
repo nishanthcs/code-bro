@@ -359,6 +359,7 @@ def test_session_listing_supports_sort_date_filter_and_pagination(
         None,
         sort="name_asc",
         updated_after="2026-02-01T00:00:00.000Z",
+        updated_before="2026-02-28T23:59:59.999Z",
     )
 
     assert [item["name"] for item in recently_updated] == [
@@ -376,7 +377,7 @@ def test_session_listing_supports_sort_date_filter_and_pagination(
         "Bravo",
         "Alpha",
     ]
-    assert [item["name"] for item in filtered] == ["Alpha", "Charlie"]
+    assert [item["name"] for item in filtered] == ["Charlie"]
 
     first_page, cursor = repository.list_sessions(
         "", 2, None, sort="name_asc"

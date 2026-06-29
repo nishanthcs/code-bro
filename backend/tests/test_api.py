@@ -477,12 +477,13 @@ def test_session_list_accepts_sort_and_updated_date_filter(
         "/api/v1/sessions",
         params={
             "sort": "name_asc",
-            "updated_after": "2026-06-10T00:00:00.000Z",
+            "updated_after": "2026-05-31T00:00:00.000Z",
+            "updated_before": "2026-06-10T23:59:59.999Z",
         },
     )
 
     assert response.status_code == 200
-    assert [item["name"] for item in response.json()["items"]] == ["Bravo"]
+    assert [item["name"] for item in response.json()["items"]] == ["Alpha"]
 
 
 def test_mutations_require_json(client: TestClient) -> None:
