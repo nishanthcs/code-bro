@@ -16,7 +16,7 @@ const browser = await chromium.launch({
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: "Sessions" }).waitFor();
+  await page.getByRole("heading", { name: "Sessions", exact: true }).waitFor();
   await page.getByRole("combobox", { name: "Order sessions" }).waitFor();
   await page.getByRole("combobox", { name: "Filter by updated date" }).waitFor();
   await page.getByRole("button", { name: "Settings" }).click();
@@ -64,7 +64,7 @@ try {
   await notes.fill(
     "# Smoke notes\n\n[Docs](https://example.com/docs)\n\n![tracker](https://tracker.example/pixel.png)",
   );
-  await page.getByRole("button", { name: "Preview" }).click();
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
   await page.getByRole("heading", { name: "Smoke notes" }).waitFor();
   if ((await page.getByLabel("Notes preview").locator("img").count()) !== 0) {
     throw new Error("Markdown Notes rendered a remote image.");
@@ -78,6 +78,46 @@ try {
   ) {
     throw new Error("Markdown Notes did not harden external links.");
   }
+
+  await page.getByRole("button", { name: "Open notes full screen" }).click();
+  const fullscreenDialog = page.getByRole("dialog", {
+    name: "Session Notes",
+  });
+  await fullscreenDialog.waitFor();
+  await fullscreenDialog.getByRole("heading", { name: "Smoke notes" }).waitFor();
+  if ((await fullscreenDialog.locator("img").count()) !== 0) {
+    throw new Error("Full-screen notes rendered a remote image.");
+  }
+  const fullscreenLink = fullscreenDialog.getByRole("link", { name: "Docs" });
+  if (
+    (await fullscreenLink.getAttribute("target")) !== "_blank" ||
+    (await fullscreenLink.getAttribute("rel")) !== "noopener noreferrer"
+  ) {
+    throw new Error("Full-screen notes did not harden external links.");
+  }
+
+  const fontSizeDisplay = page.locator(".notes-fullscreen-font-size");
+  const initialFontText = await fontSizeDisplay.textContent();
+  if (initialFontText === null) {
+    throw new Error("Could not read font size display.");
+  }
+  await fullscreenDialog.getByRole("button", { name: "Increase notes font size" }).click();
+  await page.waitForTimeout(50);
+  const increasedFontText = await fontSizeDisplay.textContent();
+  if (increasedFontText === initialFontText) {
+    throw new Error("Font size did not increase after clicking Increase.");
+  }
+
+  await fullscreenDialog.getByRole("button", { name: "Close full screen notes" }).click();
+  await page.getByRole("button", { name: "Open notes full screen" }).waitFor();
+  if (
+    !(await page
+      .getByRole("button", { name: "Open notes full screen" })
+      .evaluate((el) => el === document.activeElement))
+  ) {
+    throw new Error("Focus did not return to Open notes full screen button.");
+  }
+
   const notesSeparator = page.getByRole("separator", {
     name: "Resize output and session notes panels",
   });
@@ -196,14 +236,13 @@ try {
   }
   if (
     (await page.getByRole("button", {
-      name: "Expand session notes panel",
-    }).getAttribute("aria-expanded")) !== "false"
+      name: "Collapse session notes panel",
+    }).getAttribute("aria-expanded")) !== "true"
   ) {
-    throw new Error("The Session Notes collapse preference was not restored.");
+    throw new Error("The Session Notes panel was not expanded for an existing-notes session.");
   }
-  await page.getByRole("button", {
-    name: "Expand session notes panel",
-  }).click();
+  await page.getByRole("heading", { name: "Smoke notes" }).waitFor();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   if (
     !(await page
       .getByRole("textbox", { name: "Session notes" })
@@ -211,6 +250,7 @@ try {
   ) {
     throw new Error("The session Markdown Notes were not restored.");
   }
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
   if (
     (await page
       .getByRole("separator", {

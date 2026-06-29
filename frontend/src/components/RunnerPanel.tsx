@@ -19,7 +19,8 @@ import {
   STDIN_HEIGHT_MAX,
   STDIN_HEIGHT_MIN,
 } from "../lib/preferences";
-import type { OutputFragment, RunStatus } from "../types";
+import type { OutputFragment, RunStatus, SessionNotesMode } from "../types";
+import type { NotesFontSize } from "../lib/preferences";
 import { ResizeHandle } from "./ResizeHandle";
 import {
   SessionNotesPanel,
@@ -76,6 +77,14 @@ export function RunnerPanel({
   onNotesHeightChange,
   notesCollapsed,
   onToggleNotes,
+  notesFullscreen,
+  onToggleNotesFullscreen,
+  notesMode,
+  onNotesModeChange,
+  notesFontSize,
+  onIncreaseNotesFontSize,
+  onDecreaseNotesFontSize,
+  notesFullscreenButtonRef,
 }: {
   stdin: string;
   onStdinChange: (value: string) => void;
@@ -93,6 +102,14 @@ export function RunnerPanel({
   onNotesHeightChange: (percent: number) => void;
   notesCollapsed: boolean;
   onToggleNotes: () => void;
+  notesFullscreen: boolean;
+  onToggleNotesFullscreen: () => void;
+  notesMode: SessionNotesMode;
+  onNotesModeChange: (mode: SessionNotesMode) => void;
+  notesFontSize: NotesFontSize;
+  onIncreaseNotesFontSize: () => void;
+  onDecreaseNotesFontSize: () => void;
+  notesFullscreenButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const lowerRef = useRef<HTMLDivElement>(null);
@@ -286,6 +303,14 @@ export function RunnerPanel({
           onNotesMarkdownChange={onNotesMarkdownChange}
           collapsed={notesCollapsed}
           onToggle={onToggleNotes}
+          fullscreen={notesFullscreen}
+          onToggleFullscreen={onToggleNotesFullscreen}
+          mode={notesMode}
+          onModeChange={onNotesModeChange}
+          notesFontSize={notesFontSize}
+          onIncreaseNotesFontSize={onIncreaseNotesFontSize}
+          onDecreaseNotesFontSize={onDecreaseNotesFontSize}
+          fullscreenButtonRef={notesFullscreenButtonRef}
         />
       </div>
     </aside>

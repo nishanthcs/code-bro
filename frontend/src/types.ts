@@ -62,6 +62,8 @@ export type RunStatus =
   | "stopped"
   | "timed-out";
 
+export type SessionNotesMode = "edit" | "preview";
+
 export interface OutputFragment {
   sequence: number;
   stream: "stdout" | "stderr" | "system";
